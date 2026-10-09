@@ -1,0 +1,14 @@
+{
+  "profile": {
+    "first_name": "Fictional Test", "last_name": "Candidate", "email": "candidate@example.invalid",
+    "phone_country_code": "+55", "phone": "11999990000", "city": "São Paulo", "state": "SP", "country": "Brasil", "bio": "Perfil fictício apenas para testes",
+    "career_entries": [
+      {"id":"project-api","category":"project","title":"Academic API Project","text":"Developed a Python REST API with Flask, PostgreSQL and automated tests. Used Docker and Git for development.","technologies":["Python","Flask","PostgreSQL","Docker","Git"],"source":"FICTITIOUS TEST FIXTURE","confirmed":true},
+      {"id":"education","category":"education","organization":"Fictional University","title":"Computer Science","start_date":"2021","end_date":"2025","text":"Academic software engineering and database projects.","source":"FICTITIOUS TEST FIXTURE","confirmed":true},
+      {"id":"english","category":"language","text":"English","proficiency":"Fluent","source":"FICTITIOUS TEST FIXTURE","confirmed":true}
+    ]
+  },
+  "search_criteria":{"job_titles":["Engineer","Developer"],"keywords_include":["Python"],"locations":[],"greenhouse_boards":["stripe"],"lever_boards":["ciandt"],"max_results":5,"resume_language":"en"},
+  "bot":{"apply_mode":"watch","min_match_score":0},
+  "llm":{"provider":"","api_key":"","model":""}
+}

@@ -88,7 +88,7 @@ class TestSearchCriteria:
         assert sc.salary_min is None
         assert sc.keywords_include == []
         assert sc.keywords_exclude == []
-        assert sc.experience_levels == ["mid", "senior"]
+        assert sc.experience_levels == []
 
 
 class TestBotConfig:
@@ -136,7 +136,8 @@ class TestAppConfig:
 class TestGetDataDir:
     """Tests for get_data_dir()."""
 
-    def test_get_data_dir_returns_home_autoapply(self):
+    def test_get_data_dir_returns_home_autoapply(self, monkeypatch):
+        monkeypatch.delenv("AUTOAPPLY_DATA_DIR", raising=False)
         """get_data_dir() returns ~/.autoapply.  # FR-003"""
         from pathlib import Path
 

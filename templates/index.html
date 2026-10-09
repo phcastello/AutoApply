@@ -340,6 +340,7 @@
 <nav id="navbar" class="hidden" aria-label="Main navigation">
   <div class="logo" aria-hidden="true">Auto<span>Apply</span></div>
   <ul class="nav-tabs" role="tablist">
+    <li role="presentation"><a role="tab" data-screen="assistant" aria-selected="false" tabindex="-1">Candidaturas assistidas</a></li>
     <li role="presentation"><a role="tab" class="active" data-screen="dashboard" aria-selected="true" tabindex="0" data-i18n="nav.dashboard">Dashboard</a></li>
     <li role="presentation"><a role="tab" data-screen="applications" aria-selected="false" tabindex="-1" data-i18n="nav.applications">Applications</a></li>
     <li role="presentation"><a role="tab" data-screen="profile" aria-selected="false" tabindex="-1" data-i18n="nav.profile">Profile</a></li>
@@ -360,6 +361,7 @@
      SCREENS
      ════════════════════════════════════════════════════════════════ -->
 <main class="main-content hidden" id="app-screens" role="main">
+  {% include 'assistant.html' %}
 
   <!-- DASHBOARD -->
   <div class="screen" id="screen-dashboard">

@@ -16,6 +16,8 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from config.settings import (
     AppConfig,
     _save_config_raw,
@@ -114,7 +116,7 @@ class TestKeyringIntegration:
 
         # Verify keyring was called
         mock_keyring.set_password.assert_called_once_with(
-            "autoapply", "llm_api_key", "sk-test-123"
+            "autoapply", "llm_api_key:openai:default", "sk-test-123"
         )
         # Verify config.json has empty api_key
         saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
@@ -137,8 +139,8 @@ class TestKeyringIntegration:
         assert cfg is not None
         assert cfg.llm.api_key == "sk-from-keyring"
 
-    def test_keyring_fallback_to_plaintext(self, tmp_path, monkeypatch):
-        """AC-QW1.3: When keyring unavailable, key stays in config.json."""
+    def test_keyring_never_falls_back_to_plaintext(self, tmp_path, monkeypatch):
+        """Without a credential vault, require a session environment key."""
         monkeypatch.setattr("config.settings.get_data_dir", lambda: tmp_path)
         monkeypatch.setattr("config.settings._keyring_available", False)
 
@@ -146,11 +148,9 @@ class TestKeyringIntegration:
         data["llm"] = {"provider": "openai", "api_key": "sk-plain", "model": ""}
         cfg = AppConfig(**data)
 
-        save_config(cfg)
-
-        # Verify config.json still has the key (not stripped)
-        saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
-        assert saved["llm"]["api_key"] == "sk-plain"
+        with pytest.raises(ValueError, match="Keyring"):
+            save_config(cfg)
+        assert not (tmp_path / "config.json").exists()
 
     def test_migration_from_plaintext_to_keyring(self, tmp_path, monkeypatch):
         """AC-QW1.4: Existing plaintext key migrated to keyring on load."""
@@ -169,7 +169,7 @@ class TestKeyringIntegration:
 
         # Key should be migrated to keyring
         mock_keyring.set_password.assert_called_once_with(
-            "autoapply", "llm_api_key", "sk-migrate-me"
+            "autoapply", "llm_api_key:openai:default", "sk-migrate-me"
         )
         # config.json should now have empty api_key
         saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
@@ -687,15 +687,11 @@ class TestCORSLockdown:
 
     def test_cors_not_wildcard(self):
         """AC-ME5.1: cors_allowed_origins is not '*'."""
-        import inspect
-
         import app as app_module
-
-        source = inspect.getsource(app_module)
-        # The old pattern should NOT exist
-        assert 'cors_allowed_origins="*"' not in source
-        # The new restricted pattern should exist
-        assert "localhost" in source
+        engine = app_module.socketio.server.eio
+        allowed = engine._cors_allowed_origins({"wsgi.url_scheme": "http", "HTTP_HOST": "127.0.0.1:5003"})
+        assert "http://127.0.0.1:5003" in allowed
+        assert "http://external.example" not in allowed
 
 
 # ═══════════════════════════════════════════════════════════════════════════

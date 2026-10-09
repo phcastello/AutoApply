@@ -259,7 +259,7 @@ def create_app() -> tuple[Flask, SocketIO]:
 
     sio = SocketIO(
         flask_app,
-        cors_allowed_origins=["http://localhost:*", "http://127.0.0.1:*"],
+        # Default same-origin validation supports the actual local dynamic port.
         async_mode="gevent",
     )
 
@@ -270,6 +270,7 @@ def create_app() -> tuple[Flask, SocketIO]:
 
     # Register blueprints
     from routes.analytics import analytics_bp
+    from routes.assistant import assistant_bp
     from routes.applications import applications_bp
     from routes.bot import bot_bp, init_scheduler
     from routes.config import config_bp
@@ -281,6 +282,7 @@ def create_app() -> tuple[Flask, SocketIO]:
     from routes.resumes import resumes_bp
 
     flask_app.register_blueprint(applications_bp)
+    flask_app.register_blueprint(assistant_bp)
     flask_app.register_blueprint(bot_bp)
     flask_app.register_blueprint(config_bp)
     flask_app.register_blueprint(profile_bp)

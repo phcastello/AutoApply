@@ -10,6 +10,7 @@ Falls back to static templates when no API key is configured.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -279,7 +280,7 @@ def _call_llm(
                 )
                 time.sleep(delay)
 
-    raise RuntimeError(f"LLM call failed after {MAX_RETRIES + 1} attempts: {last_error}")
+    raise RuntimeError(f"LLM call failed after {MAX_RETRIES + 1} attempts ({type(last_error).__name__})")
 
 
 def _call_anthropic(api_key: str, model: str, prompt: str, timeout: int) -> str:
@@ -348,15 +349,8 @@ def _call_google(api_key: str, model: str, prompt: str, timeout: int) -> str:
 
 def _raise_api_error(provider: str, resp: requests.Response) -> None:
     """Extract error message from API response and raise RuntimeError."""
-    try:
-        body = resp.json()
-        msg = body.get("error", {})
-        if isinstance(msg, dict):
-            msg = msg.get("message", resp.text)
-    except Exception as e:
-        logger.debug("Failed to parse API error response: %s", e)
-        msg = resp.text
-    raise RuntimeError(f"{provider} API error ({resp.status_code}): {msg}")
+    # Remote error bodies may echo prompts, credentials or personal data.
+    raise RuntimeError(f"{provider} API error ({resp.status_code})")
 
 
 def invoke_llm(prompt: str, llm_config, timeout_seconds: int = 120) -> str:
@@ -373,14 +367,32 @@ def invoke_llm(prompt: str, llm_config, timeout_seconds: int = 120) -> str:
     Raises:
         RuntimeError: If no API key is configured or the API call fails.
     """
-    if not llm_config or not llm_config.api_key:
+    api_key = (getattr(llm_config, "api_key", "") or os.environ.get("AUTOAPPLY_LLM_API_KEY", "")) if llm_config else ""
+    endpoint = getattr(llm_config, "endpoint", "") if llm_config else ""
+    if not llm_config or (not api_key and not endpoint):
         raise RuntimeError(
             "No AI provider configured. Add an API key in Settings → AI Provider."
         )
 
     provider = llm_config.provider
-    api_key = llm_config.api_key
     model = llm_config.model or DEFAULT_MODELS.get(provider, "")
+
+    if endpoint:
+        # Explicitly configured OpenAI-compatible endpoint, including local models.
+        # Never expose raw exception bodies/URLs containing credentials.
+        from urllib.parse import urlsplit
+        parsed = urlsplit(endpoint)
+        if parsed.scheme not in ("https", "http") or parsed.username or parsed.password or parsed.query:
+            raise RuntimeError("Endpoint inválido")
+        if parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+            raise RuntimeError("HTTP permitido somente para modelos locais")
+        if not model:
+            raise RuntimeError("Informe o modelo para o endpoint personalizado")
+        resp = requests.post(endpoint, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                             json={"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": 2048}, timeout=timeout_seconds)
+        if not resp.ok:
+            raise RuntimeError(f"Endpoint de IA retornou HTTP {resp.status_code}")
+        return str(resp.json()["choices"][0]["message"]["content"]).strip()
 
     return _call_llm(provider, api_key, model, prompt, timeout_seconds)
 

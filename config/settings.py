@@ -6,11 +6,13 @@ Implements: FR-001 (data directory), FR-003 (configuration model),
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 _logger = logging.getLogger(__name__)
 
@@ -23,6 +25,11 @@ KEYRING_SERVICE = "autoapply"
 KEYRING_KEY_NAME = "llm_api_key"
 
 
+def _credential_name(llm) -> str:
+    scope = hashlib.sha256(llm.endpoint.encode()).hexdigest()[:16] if llm.endpoint else "default"
+    return f"{KEYRING_KEY_NAME}:{llm.provider}:{scope}"
+
+
 def _check_keyring() -> bool:
     """Return True if the OS keyring backend is usable. Result is cached."""
     global _keyring_available
@@ -30,12 +37,34 @@ def _check_keyring() -> bool:
         return _keyring_available
     try:
         import keyring
+
         keyring.get_password(KEYRING_SERVICE, "__probe__")
         _keyring_available = True
     except Exception:
-        _logger.warning("keyring unavailable — API key stored in plaintext config")
+        _logger.warning(
+            "keyring unavailable — API keys must be supplied through the session environment"
+        )
         _keyring_available = False
     return _keyring_available
+
+
+class CareerEntry(BaseModel):
+    """One user-confirmed fact, with its original role and dates attached."""
+
+    id: str
+    category: str = "experience"
+    text: str
+    title: str = ""
+    organization: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    location: str = ""
+    technologies: list[str] = []
+    url: str = ""
+    experience_type: str = ""
+    proficiency: str = ""
+    source: str = "manual"
+    confirmed: bool = False
 
 
 class UserProfile(BaseModel):
@@ -55,6 +84,9 @@ class UserProfile(BaseModel):
     portfolio_url: str | None = None
     fallback_resume_path: str | None = None
     screening_answers: dict = {}
+    github_url: str = ""
+    professional_links: list[str] = []
+    career_entries: list[CareerEntry] = []
 
     # Backward-compatible property — used by AI engine prompts and Lever/Indeed
     @property
@@ -105,24 +137,40 @@ class SearchCriteria(BaseModel):
     salary_min: int | None = None
     keywords_include: list[str] = []
     keywords_exclude: list[str] = []
-    experience_levels: list[str] = ["mid", "senior"]
+    experience_levels: list[str] = []
+    areas: list[str] = []
+    countries: list[str] = []
+    work_modes: list[str] = []
+    weekly_hours: int | None = Field(default=None, ge=1, le=168)
+    employment_types: list[str] = []
+    contract_types: list[str] = []
+    accepted_languages: list[str] = []
+    resume_language: str = "auto"
+    willing_to_relocate: bool | None = None
+    needs_sponsorship: bool | None = None
+    # Public ATS board identifiers, editable in the dashboard.
+    greenhouse_boards: list[str] = ["stripe"]
+    lever_boards: list[str] = ["ciandt"]
+    max_results: int = Field(default=20, ge=1, le=100)
 
 
 class ScheduleConfig(BaseModel):
     enabled: bool = False
     days_of_week: list[str] = ["mon", "tue", "wed", "thu", "fri"]
     start_time: str = "09:00"  # HH:MM in 24-hour local time
-    end_time: str = "17:00"    # HH:MM in 24-hour local time
+    end_time: str = "17:00"  # HH:MM in 24-hour local time
 
 
 class LLMConfig(BaseModel):
     provider: str = ""  # "anthropic" | "openai" | "google" | "deepseek"
     api_key: str = ""
     model: str = ""  # Empty = use default for provider
+    endpoint: str = ""
 
 
 class ResumeReuseConfig(BaseModel):
     """Configuration for smart resume reuse via Knowledge Base assembly."""
+
     enabled: bool = True
     min_score: float = 0.0
     min_experience_bullets: int = 6
@@ -132,6 +180,7 @@ class ResumeReuseConfig(BaseModel):
 
 class LatexConfig(BaseModel):
     """Configuration for LaTeX resume compilation."""
+
     template: str = "classic"  # template name in templates/latex/
     font_family: str = "helvetica"  # helvetica, times, palatino
     font_size: int = 11  # 10, 11, 12
@@ -144,7 +193,7 @@ class BotConfig(BaseModel):
     max_applications_per_day: int = 50
     delay_between_applications_seconds: int = 45
     search_interval_seconds: int = 1800
-    apply_mode: str = "full_auto"  # "full_auto" | "review" | "watch"
+    apply_mode: str = "watch"  # Automatic submission requires explicit opt-in.
     watch_mode: bool = False  # Deprecated: use apply_mode instead
     cover_letter_enabled: bool = True
     cover_letter_template: str = ""
@@ -163,7 +212,8 @@ class AppConfig(BaseModel):
 
 
 def get_data_dir() -> Path:
-    return Path.home() / ".autoapply"
+    override = os.environ.get("AUTOAPPLY_DATA_DIR")
+    return Path(override).expanduser().resolve() if override else Path.home() / ".autoapply"
 
 
 def load_config() -> AppConfig | None:
@@ -175,17 +225,23 @@ def load_config() -> AppConfig | None:
     config = AppConfig(**data)
 
     # Retrieve API key from keyring if available
-    if _check_keyring():
+    if config.llm.provider and _check_keyring():
         import keyring
 
-        stored_key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEY_NAME)
+        credential_name = _credential_name(config.llm)
+        stored_key = keyring.get_password(KEYRING_SERVICE, credential_name)
+        if not stored_key and "endpoint" not in data.get("llm", {}):
+            # One-time migration from the upstream's shared provider key slot.
+            stored_key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEY_NAME)
+            if stored_key:
+                keyring.set_password(KEYRING_SERVICE, credential_name, stored_key)
+                config.llm.api_key = stored_key
+                _save_config_raw(config, strip_api_key=True)
         if stored_key:
             config.llm.api_key = stored_key
         elif config.llm.api_key:
             # Migration: move plaintext key into keyring
-            keyring.set_password(
-                KEYRING_SERVICE, KEYRING_KEY_NAME, config.llm.api_key
-            )
+            keyring.set_password(KEYRING_SERVICE, credential_name, config.llm.api_key)
             _save_config_raw(config, strip_api_key=True)
             _logger.info("Migrated API key from config.json to OS keyring")
 
@@ -194,12 +250,14 @@ def load_config() -> AppConfig | None:
 
 def save_config(config: AppConfig) -> None:
     # Store API key in keyring if possible
+    if config.llm.api_key and not _check_keyring():
+        raise ValueError(
+            "Keyring indisponível. Use AUTOAPPLY_LLM_API_KEY nesta sessão; a chave não será gravada em texto puro."
+        )
     if config.llm.api_key and _check_keyring():
         import keyring
 
-        keyring.set_password(
-            KEYRING_SERVICE, KEYRING_KEY_NAME, config.llm.api_key
-        )
+        keyring.set_password(KEYRING_SERVICE, _credential_name(config.llm), config.llm.api_key)
 
     _save_config_raw(config, strip_api_key=_check_keyring())
 

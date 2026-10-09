@@ -199,11 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const banner = document.getElementById('ai-warning-banner');
     if (banner) banner.classList.toggle('hidden', state.aiAvailable);
 
-    if (data.is_first_run) {
-      showWizard(data);
-    } else {
-      showApp();
-    }
+    showApp();
   } catch (e) {
     console.warn('Could not reach setup API, showing app:', e);
     showApp();

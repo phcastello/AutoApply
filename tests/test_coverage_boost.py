@@ -227,7 +227,7 @@ class TestAPIErrorHandling:
         mock_resp.text = "error text"
         mock_post.return_value = mock_resp
 
-        with pytest.raises(RuntimeError, match="Invalid API key"):
+        with pytest.raises(RuntimeError, match=r"API error \(401\)"):
             _call_openai_compatible("openai", "bad-key", "gpt-4o", "test", 10)
 
     @patch("core.ai_engine.requests.post")
@@ -240,7 +240,7 @@ class TestAPIErrorHandling:
         mock_resp.text = "forbidden"
         mock_post.return_value = mock_resp
 
-        with pytest.raises(RuntimeError, match="API key invalid"):
+        with pytest.raises(RuntimeError, match=r"API error \(403\)"):
             _call_google("bad-key", "gemini-2.0-flash", "test", 10)
 
     def test_raise_api_error_json_parse_failure(self):
@@ -251,7 +251,7 @@ class TestAPIErrorHandling:
         mock_resp.json.side_effect = ValueError("not json")
         mock_resp.text = "Internal Server Error"
 
-        with pytest.raises(RuntimeError, match="Internal Server Error"):
+        with pytest.raises(RuntimeError, match=r"API error \(500\)"):
             _raise_api_error("TestProvider", mock_resp)
 
 

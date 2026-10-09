@@ -32,6 +32,18 @@ profile/cover_letters/
 
 # Environment / secrets
 .env
+.env.*
+!.env.example
+.validation/
+outputs/
+tmp/
+*.db-wal
+*.db-shm
+config.json
+.api_token
+.flask_secret
+profile/experiences/
+uploads/
 *.pem
 *.key
 

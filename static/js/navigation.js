@@ -2,6 +2,7 @@
    NAV TABS — with ARIA tablist keyboard navigation (WCAG 2.1 §2.1.1)
    ═══════════════════════════════════════════════════════════════ */
 import { state } from './state.js';
+import { loadAssistant } from './assistant.js';
 import { loadFeedHistory } from './feed.js';
 import { loadApplications } from './applications.js';
 import { loadProfileFiles } from './profile.js';
@@ -44,6 +45,7 @@ export function switchScreen(name) {
   if (el) el.classList.remove('hidden');
 
   // Load data for the screen
+  if (name === 'assistant') loadAssistant();
   if (name === 'dashboard') { loadFeedHistory(); loadApplyMode(); loadDefaultResume(); }
   if (name === 'applications') loadApplications();
   if (name === 'profile') loadProfileFiles();
@@ -57,5 +59,5 @@ export function showApp() {
   document.getElementById('wizard-overlay').classList.add('hidden');
   document.getElementById('navbar').classList.remove('hidden');
   document.getElementById('app-screens').classList.remove('hidden');
-  switchScreen('dashboard');
+  switchScreen('assistant');
 }

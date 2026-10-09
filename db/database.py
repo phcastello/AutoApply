@@ -13,6 +13,22 @@ from pathlib import Path
 from db.models import Application, FeedEvent
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS discovered_jobs (
+    application_id INTEGER PRIMARY KEY REFERENCES applications(id),
+    canonical_url TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    discovered_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_job_url ON discovered_jobs(canonical_url);
+CREATE INDEX IF NOT EXISTS idx_job_fingerprint ON discovered_jobs(fingerprint);
+CREATE TABLE IF NOT EXISTS assisted_resumes (
+    version_id INTEGER PRIMARY KEY REFERENCES resume_versions(id),
+    cache_key TEXT NOT NULL,
+    docx_path TEXT NOT NULL,
+    provenance_path TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS applications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     external_id TEXT NOT NULL,

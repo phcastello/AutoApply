@@ -25,12 +25,16 @@ config_bp = Blueprint("config", __name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
+
 @config_bp.route("/api/config", methods=["GET"])
 def get_config():
     config = load_config()
     if config is None:
         return jsonify({})
-    return jsonify(config.model_dump())
+    data = config.model_dump()
+    data["llm"]["api_key"] = ""
+    data["llm"]["has_api_key"] = bool(config.llm.api_key)
+    return jsonify(data)
 
 
 @config_bp.route("/api/config", methods=["PUT"])
@@ -48,6 +52,13 @@ def update_config():
                 else:
                     merged[key] = value
             config = AppConfig(**merged)
+            if not data.get("llm", {}).get("api_key"):
+                config.llm.api_key = (
+                    existing.llm.api_key
+                    if (config.llm.provider, config.llm.endpoint)
+                    == (existing.llm.provider, existing.llm.endpoint)
+                    else ""
+                )
         else:
             config = AppConfig(**data)
     except ValidationError as e:
@@ -60,17 +71,21 @@ def update_config():
 # Setup
 # ---------------------------------------------------------------------------
 
+
 @config_bp.route("/api/setup/status", methods=["GET"])
 def setup_status():
-    return jsonify({
-        "is_first_run": is_first_run(),
-        "ai_available": check_ai_available(),
-    })
+    return jsonify(
+        {
+            "is_first_run": is_first_run(),
+            "ai_available": check_ai_available(),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # AI Provider
 # ---------------------------------------------------------------------------
+
 
 @config_bp.route("/api/ai/validate", methods=["POST"])
 def validate_ai_key():
@@ -103,7 +118,9 @@ def upload_default_resume():
 
     ext = Path(f.filename).suffix.lower()
     if ext not in _ALLOWED_RESUME_EXT:
-        return jsonify({"error": f"Unsupported format. Allowed: {', '.join(_ALLOWED_RESUME_EXT)}"}), 400
+        return jsonify(
+            {"error": f"Unsupported format. Allowed: {', '.join(_ALLOWED_RESUME_EXT)}"}
+        ), 400
 
     data = f.read()
     if len(data) > _MAX_RESUME_SIZE:

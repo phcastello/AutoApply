@@ -1,0 +1,58 @@
+<section class="screen hidden" id="screen-assistant" lang="pt-BR">
+  <h1>Candidaturas assistidas</h1>
+  <p>Configure seu perfil, busque vagas publicadas e prepare o currículo para concluir a candidatura na página oficial.</p>
+  <p class="text-dim">Envio automático desativado neste fluxo. Compatibilidade não é probabilidade de contratação. Nenhum dado fictício é inserido automaticamente.</p>
+  <div id="assistant-message" role="status" aria-live="polite" style="white-space:pre-wrap;margin:16px 0"></div>
+  <details class="card" open><summary><strong>1. Perfil e informações confirmadas</strong></summary>
+    <div id="assistant-contact" class="assistant-grid"></div>
+    <p>Adicione uma informação por entrada. Use instituição e curso para formação; empresa e cargo para experiência; nome e contribuição para projetos. Datas, tecnologias, idioma e nível são opcionais. Só entradas marcadas como confirmadas entram no currículo.</p>
+    <div class="flex gap-sm" style="flex-wrap:wrap;margin:12px 0">
+      <button class="btn btn-primary" id="assistant-add-fact">Adicionar informação</button>
+      <label class="btn btn-ghost">Importar PDF, DOCX, MD ou TXT <input id="assistant-import" type="file" accept=".pdf,.docx,.md,.txt" style="max-width:210px"></label>
+      <button class="btn btn-ghost" id="assistant-kb">Trazer sugestões da Knowledge Base</button>
+    </div>
+    <p class="text-dim">Importação extrai texto localmente. Revise e categorize os rascunhos antes de confirmar; documentos gerados anteriormente não viram fatos automaticamente.</p>
+    <div id="assistant-facts"></div>
+  </details>
+  <details class="card" open style="margin-top:16px"><summary><strong>2. Preferências e fontes de vagas</strong></summary>
+    <p>Campos vazios não restringem a busca. Listas usam vírgulas. Buscamos nos boards das empresas configuradas, não em toda a internet.</p>
+    <div id="assistant-preferences" class="assistant-grid"></div>
+    <p class="text-dim">País, salário, jornada, contrato, idioma e visto podem exigir conferência manual quando a fonte não fornece dados comparáveis. A descrição completa permanece disponível.</p>
+  </details>
+  <details class="card" style="margin-top:16px"><summary><strong>3. IA opcional e privacidade</strong></summary>
+    <p>A seleção local funciona sem chave. Ao habilitar IA, textos profissionais confirmados e a descrição da vaga serão enviados ao provedor escolhido. Nome e contatos não fazem parte do pedido de seleção. O modelo seleciona referências, sem escrever qualificações.</p>
+    <div id="assistant-ai" class="assistant-grid"></div>
+    <label><input id="assistant-use-ai" type="checkbox"> Usar IA para selecionar informações ao gerar currículo</label>
+    <p id="assistant-key-status" class="text-dim"></p>
+    <button class="btn btn-ghost" id="assistant-ai-test">Salvar e testar provedor</button>
+  </details>
+  <div class="flex gap-sm" style="margin:20px 0;flex-wrap:wrap">
+    <button class="btn btn-primary" id="assistant-save">Salvar perfil e preferências</button>
+    <button class="btn btn-success" id="assistant-search">Salvar e pesquisar vagas reais</button>
+    <button class="btn btn-ghost" id="assistant-refresh">Atualizar histórico</button>
+  </div>
+  <div class="card"><h2>4. Vagas e histórico</h2>
+    <div class="assistant-grid">
+      <label>Filtrar cargo ou empresa<input id="assistant-filter" type="search"></label>
+      <label>Compatibilidade mínima<input id="assistant-min-score" type="number" min="0" max="100" value="0"></label>
+      <label>Estado<select id="assistant-status-filter"><option value="">Todos</option></select></label>
+    </div>
+    <p id="assistant-results-summary" role="status"></p>
+    <div id="assistant-jobs"></div>
+  </div>
+  <dialog id="assistant-preview" style="width:90vw;max-width:1000px;height:90vh">
+    <button id="assistant-close-preview" class="btn btn-ghost">Fechar visualização</button>
+    <iframe title="Currículo PDF" id="assistant-pdf-frame" style="width:100%;height:85%;border:0"></iframe>
+  </dialog>
+</section>
+<style>
+  .assistant-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:16px 0}
+  .assistant-grid label {display:flex;flex-direction:column;gap:6px}
+  .assistant-grid input,.assistant-grid select,.assistant-grid textarea {width:100%;box-sizing:border-box;background:var(--bg,#101823);color:var(--text,#edf2f7);border:1px solid var(--border,#738095);border-radius:6px;padding:9px;font:inherit}
+  .assistant-grid input[type="checkbox"] {width:auto;align-self:flex-start}
+  .assistant-job select {background:var(--bg,#101823);color:var(--text,#edf2f7);padding:8px;border:1px solid var(--border,#738095);border-radius:6px}
+  .assistant-fact,.assistant-job {border:1px solid var(--border,#999);border-radius:8px;padding:16px;margin:14px 0}
+  .assistant-fact textarea {min-height:90px}
+  .assistant-job pre {white-space:pre-wrap;font-family:inherit;max-height:450px;overflow:auto}
+  #assistant-preview::backdrop {background:#0008}
+</style>

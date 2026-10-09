@@ -1,227 +1,144 @@
-# AutoApply
+# AI Job Application Assistant
 
-**Automated job application platform that searches, scores, and applies to jobs on your behalf.**
+MVP local para descobrir vagas publicadas, comparar com um perfil confirmado e baixar um currículo por oportunidade. A candidatura é concluída manualmente na página oficial. O fluxo principal está na aba **Candidaturas assistidas**, em português brasileiro.
 
-AutoApply searches LinkedIn and Indeed, scores each job against your preferences, generates tailored resumes and cover letters using AI, and submits applications — all running locally on your machine. Your data never leaves your computer.
+Baseado no [AutoApply de Abhishek Mandapmalvi](https://github.com/AbhishekMandapmalvi/AutoApply), versão 2.4.1, commit `053071ba1bba5733b522d78c3d645002d817e55a`. Reutiliza Flask, dashboard, SQLite, Knowledge Base, parser PDF/DOCX/TXT/MD, TF-IDF, ReportLab e provedores de IA. A [licença MIT e copyright original](LICENSE) permanecem intactos. A [documentação original arquivada](docs/UPSTREAM_README.md) não comprova o funcionamento das integrações históricas.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-1385%20passing-brightgreen.svg)](#testing)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+Fork: [phcastello/AutoApply](https://github.com/phcastello/AutoApply). Código do MVP na branch [mvp-assisted](https://github.com/phcastello/AutoApply/tree/mvp-assisted).
 
----
+## Instalação e execução no Windows
 
-## Features
+Requisitos: Python 3.11+, Git e internet para consultar vagas. Validado com Python 3.12 no Windows. Node, Docker, PostgreSQL, Redis, LaTeX e login LinkedIn não são necessários para o fluxo assistido.
 
-- **Multi-platform search** — LinkedIn and Indeed, with configurable job titles, locations, and keywords
-- **Smart scoring** — Each job scored 0–100 based on title match, salary, location, experience level, and keyword relevance
-- **AI-powered documents** — Generates tailored resumes (PDF) and cover letters per job using your choice of AI provider (Anthropic, OpenAI, Google, or DeepSeek)
-- **Knowledge Base** — Upload career documents (PDF, DOCX, TXT, MD) once, reuse categorized entries across applications. TF-IDF scoring ranks entries by job relevance
-- **Automated applications** — Fills forms, uploads documents, and submits on LinkedIn Easy Apply, Indeed Quick Apply, Greenhouse, Lever, Workday, and Ashby
-- **Review mode** — Optionally review each application before it's submitted
-- **Dashboard** — Real-time live feed, application history, analytics, resume library, CSV export
-- **Desktop app** — Electron shell with system tray support (minimize to tray, runs in background)
-- **Login session persistence** — Log in once, sessions are saved across restarts
-- **Scheduling** — Set days and hours for the bot to run automatically
-- **Accessible** — WCAG 2.1 AA compliant: keyboard navigation, screen reader support, focus management, reduced motion
-- **Internationalization** — Full i18n with JSON locale files, `data-i18n` HTML attributes, and backend `t()` function. Add new languages by copying `static/locales/en.json`
-- **Fully local** — No cloud, no accounts, no telemetry. Everything at `~/.autoapply/`
+No PowerShell, dentro da pasta do projeto:
 
-## Quick Start
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe run.py --no-browser
+```
 
-**Prerequisites**: Python 3.11+, Node.js 18+, and Google Chrome installed.
+Abra **http://localhost:5000** no navegador. Caso a porta esteja ocupada, o terminal informa a porta efetiva entre 5000 e 5010. Mantenha o terminal aberto; Ctrl+C encerra. Janela nativa opcional: `.\.venv\Scripts\python.exe run.py --gui`, com WebView2 instalado.
 
-```bash
-# 1. Clone and set up
-git clone https://github.com/AbhishekMandapmalvi/AutoApply.git
+O servidor escuta em `127.0.0.1`. Não o publique na internet: o dashboard dá acesso aos seus documentos locais. Dados padrão em `%USERPROFILE%\.autoapply`. Para separar perfis/testes, defina `$env:AUTOAPPLY_DATA_DIR = "$PWD\.validation\meu-teste"` antes de iniciar. Cada diretório representa um perfil, sem sincronização ou autenticação multiusuário.
+
+## Perfil e importação
+
+1. Abra **Candidaturas assistidas** e preencha nome, e-mail e contatos desejados.
+2. **Adicionar informação** permite registrar experiência, formação, projeto, competência, idioma, certificação, pesquisa e outras informações.
+3. Use uma informação por entrada. Preencha empresa/instituição, cargo/curso/projeto, datas, tecnologias confirmadas, link, modalidade e proficiência quando disponíveis.
+4. Marque **Revisei e confirmo esta informação** após conferir. Salve o perfil.
+
+Projetos acadêmicos, iniciação científica, monitoria, publicações e atividades adicionais podem ser registrados em Pesquisa ou Outras informações. Para comparar duração profissional, use datas **AAAA-MM**; datas livres permanecem no currículo e exigem conferência no matching. O link GitHub é apenas contato; não inferimos competências de repositórios.
+
+**Importar PDF, DOCX, MD ou TXT** extrai texto localmente em rascunhos, sem enviar o documento para IA. Revise, divida, categorize e confirme. Limite: 5 MB. PDFs digitalizados precisam de OCR externo.
+
+**Trazer sugestões da Knowledge Base** reaproveita entradas antigas como rascunhos não confirmados. A KB original pode conter texto extraído por IA ou de currículos antigos: confira a origem. O novo fluxo nunca usa automaticamente esses textos ou currículos gerados como fatos.
+
+O perfil persiste em `config.json` no diretório privado de dados. Cada currículo registra os fatos utilizados e seus IDs em `provenance.json`.
+
+## Preferências e vagas reais
+
+Configure cargos, áreas, palavras-chave/exclusões, senioridade, localização, países, modalidades, horas, jornada, salário, contratos, idiomas, realocação, visto, empresas bloqueadas, idioma do currículo e pontuação mínima. Campos vazios não restringem a busca.
+
+As fontes comprovadamente operacionais são as APIs públicas de [Greenhouse](https://docs.greenhouse.io/job-board.html) e [Lever](https://github.com/lever/postings-api), usadas somente para leitura. Configure boards de empresas, por exemplo **stripe** no Greenhouse e **ciandt** no Lever. Não é uma busca global por todas as empresas. Obtenha o board token na página oficial da empresa; não use identificadores de empresas por suposição.
+
+- Cargos são alternativas e usam texto do título sem distinguir maiúsculas. Palavras incluídas são alternativas na descrição/título.
+- Palavras excluídas e empresas bloqueadas excluem resultados novos. A pontuação mínima filtra a exibição preservando histórico.
+- Limite padrão: 20 vagas por busca, configurável de 1 a 100. Até 12 boards por consulta.
+- País, salário/moeda/período, contrato, jornada, idioma e horas podem exigir revisão manual quando faltam dados comparáveis. Valores ausentes não são declarados incompatíveis.
+- Áreas e realocação persistem como contexto e ainda não alteram a pontuação automaticamente.
+
+Clique em **Salvar e pesquisar vagas reais**. Falhas das fontes aparecem mesmo quando outra fonte funciona. Zero resultados significa zero, sem dados demonstrativos.
+
+As vagas apresentam descrição completa, requisitos explicitamente identificados, fonte, URL original/candidatura, descoberta e publicação quando disponível. `updated_at` não é tratado como publicação. Modalidade e senioridade só são informadas quando identificáveis.
+
+Até cinco links por consulta são conferidos por HTTP, redirecionamentos, identificador e cargo. **Link não verificado** indica que essa correspondência não foi comprovada. **Verificar link** repete a conferência. Vagas identificadas como encerradas ficam ocultas. **Abrir vaga** leva à oportunidade específica.
+
+## Matching
+
+Utiliza evidências confirmadas de todas as categorias, tecnologias, TF-IDF original e regras de preferências. Requisitos obrigatórios explícitos têm peso maior que diferenciais. Exibe score 0–100, correspondências, lacunas, possíveis eliminatórios, conferências pendentes e recomendação.
+
+Tempo profissional une períodos sobrepostos de experiências confirmadas; formação e projetos não contam como tempo profissional. Exigências de anos sem comprovação são marcadas como possíveis eliminatórios. O cálculo não prova que cada período atende à especialidade exigida: confira a descrição. Seções não identificadas pelo parser são apresentadas como desconhecidas.
+
+O score não é chance de contratação ou aprovação ATS. Desconhecer um diferencial não provoca descarte automático. O matching do MVP é local; IA é opcional para seleção de fatos no currículo.
+
+## Configuração de IA e privacidade
+
+Na seção **IA opcional e privacidade**, escolha OpenAI, Anthropic, Google ou DeepSeek, informe modelo e chave, salve e use **Salvar e testar provedor**. Os modelos padrão são herdados do upstream e podem não estar disponíveis na sua conta; informe um modelo válido para seu provedor.
+
+Para servidor compatível com Chat Completions, informe endpoint **completo**, por exemplo `http://127.0.0.1:1234/v1/chat/completions`, e modelo. HTTP só é permitido para localhost; endpoints remotos precisam de HTTPS. Modelos locais podem dispensar chave.
+
+**Usar IA para selecionar informações** transmite os textos profissionais candidatos e a descrição ao provedor. Contatos do cabeçalho não compõem o pedido; evite dados sensíveis desnecessários no texto das experiências. A resposta só seleciona IDs existentes. Não reescreve qualificações, cargos, datas ou resultados. Respostas inválidas provocam erro, sem publicar currículo.
+
+Chaves ficam no cofre do sistema por provedor/endpoint e não são devolvidas pela API de configuração. Sem cofre, o aplicativo recusa gravar chave em texto puro. Alternativa por sessão:
+
+```powershell
+$env:AUTOAPPLY_LLM_API_KEY = "sua-chave"
+.\.venv\Scripts\python.exe run.py --no-browser
+```
+
+Essa variável vale para o provedor escolhido na sessão: não use chave de um serviço em outro endpoint. `.env.example` documenta opções; `.env` **não é carregado automaticamente**. Não versione chaves, documentos pessoais, sessões ou diretórios de dados.
+
+## Currículos, download e histórico
+
+Clique em **Gerar currículo** na vaga. O programa seleciona/ordena fatos relevantes confirmados e mantém contatos corretos. PDF tem texto selecionável e DOCX é editável. A preferência de idioma altera **títulos das seções**; os fatos preservam o idioma confirmado. Para texto inteiramente traduzido, confirme versões corretas no perfil. Tradução livre por IA não está implementada.
+
+PDFs são reabertos e verificados quanto a integridade, texto, nome/contatos, fatos selecionados, placeholders e páginas antes do download. A interface informa falhas. Use **Visualizar PDF**, **Baixar PDF**, **Baixar DOCX** e **Fontes das afirmações**. Não há garantia universal de aprovação ATS.
+
+Arquivos por geração: `<dados>/outputs/<empresa>/<id interno>/<data-versão>/`, com `resume.pdf`, `resume.docx`, `resume.md`, `provenance.json`, `job_description.txt` e `match_analysis.json`.
+
+Perfil, descrição, idioma e configuração de seleção compõem o cache. Uma versão idêntica válida é reaproveitada; **Gerar nova versão** força outra. Deduplicação usa ID/fonte, URL canônica e empresa/cargo/localização. O último critério pode unir posições distintas com metadados iguais; confira quando a empresa publica múltiplas requisições semelhantes.
+
+Estados manuais: Descoberta, Não tenho interesse, Quero me candidatar, Currículo preparado, Candidatura realizada, Resposta recebida, Entrevista, Rejeitada e Contratado. Estados, vagas, documentos, versões e falhas persistem no SQLite existente, inclusive após reiniciar. Buscas não sobrescrevem o estado manual.
+
+## Testes
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest tests/test_assisted_mvp.py tests/test_settings.py tests/test_quick_wins.py tests/test_ai_engine.py tests/test_resume_renderer.py tests/test_database.py tests/test_document_parser.py tests/test_resume_scorer.py tests/test_filter.py tests/test_coverage_boost.py -q
+```
+
+Essa seleção cobre o MVP e módulos reutilizados. A suíte histórica completa tem falhas anteriores ao fork e um teste do bot que pode bloquear. Execute módulos isolados, com limite de 60 segundos e relatório:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/run_test_modules.py --output .validation/suite
+```
+
+O runner retorna código diferente de zero se qualquer módulo falhar/exceder o limite. Resultados e diagnóstico em [docs/MVP_VALIDATION.md](docs/MVP_VALIDATION.md).
+
+Validação real reproduzível com perfil **explicitamente fictício**, sem candidatura enviada:
+
+```powershell
+.\.venv\Scripts\python.exe -m playwright install chromium
+.\.venv\Scripts\python.exe scripts/validate_live.py
+```
+
+O script usa a interface para preencher perfil/preferências, consultar APIs reais, encontrar até cinco vagas, gerar/baixar PDF/DOCX e visualizar PDF. Reinicia o backend e confere persistência. Nenhuma fonte real é substituída por fixture; indisponibilidade faz o teste falhar. Relatório em `.validation/live`, ignorado pelo Git. O perfil fictício de referência está em `examples/profile-test.json`; nunca é carregado na aplicação normal.
+
+## Limitações e evolução
+
+Scrapers LinkedIn/Indeed, adaptadores e agendador originais foram preservados, mas não validados com suas sessões. Novas configurações usam `watch` e agenda desativada. Configurações antigas que já habilitaram automação não são alteradas silenciosamente: revise-as antes de iniciar uma base existente.
+
+Sem novo envio automático, tradução livre, OCR, importação de projetos GitHub, acompanhamento de e-mail ou carta de apresentação no fluxo assistido. Algumas telas antigas continuam em inglês. Metadados ausentes precisam de revisão manual. Requisitos são extraídos por heurística, não por análise jurídica de elegibilidade.
+
+Próxima evolução: agendar descoberta ATS, melhorar requisitos objetivos e conectar uma fila revisável aos adaptadores, com opt-in explícito, limites diários e encaminhamento manual em bloqueios. Vinte envios/dia continuam planejados. CAPTCHA/autenticação obrigatória não são contornados.
+
+## Branch do MVP e publicação de alterações
+
+O MVP está na branch `mvp-assisted` do fork. Para obter essa implementação:
+
+```powershell
+git clone --branch mvp-assisted https://github.com/phcastello/AutoApply.git
 cd AutoApply
-python -m venv venv
-venv\Scripts\activate        # Windows
-source venv/bin/activate     # macOS/Linux
-python setup_env.py
-
-# 2. Install Playwright browser (for job searching/applying)
-playwright install chromium
-
-# 3. Launch the desktop app
-cd electron
-npm install
-npm start
 ```
 
-A native app window opens with the dashboard. A setup wizard walks you through configuration on first launch.
+Nesta cópia de desenvolvimento, `upstream` aponta ao autor e `origin` a `phcastello/AutoApply`. Para publicar alterações futuras, confira `git status --short` antes de criar o commit. Ambientes, `.validation`, outputs e credenciais estão ignorados.
 
-## Building Installers
-
-To create standalone installers (no Python/Node.js required on the target machine):
-
-```bash
-cd electron
-npm install
-npm run dist:win          # Windows NSIS installer (.exe)
-npm run dist:mac          # macOS disk image (.dmg)
-npm run dist:linux        # Linux portable (.AppImage)
+```powershell
+git add .
+git commit -m "Implement assisted job discovery and confirmed-profile resumes"
+git push -u origin mvp-assisted
 ```
 
-The build process automatically syncs the version from `pyproject.toml`, generates app icons, downloads an embedded Python runtime, and bundles all dependencies. Output goes to `electron/build/`.
-
-For CI-based releases, push a `v*` tag (e.g., `v1.9.0`) to trigger the GitHub Actions workflow that builds all three platforms and creates a GitHub Release.
-
-## How It Works
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Search     │────▶│   Score &    │────▶│  Generate    │────▶│   Apply      │
-│  LinkedIn    │     │   Filter     │     │  Resume + CL │     │  Auto-fill   │
-│  Indeed      │     │  (0-100)     │     │  (Claude AI) │     │  & Submit    │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-       │                    │                    │                     │
-       ▼                    ▼                    ▼                     ▼
-  Configurable        Min score gate       Tailored per job     LinkedIn Easy Apply
-  titles, locations,  + keyword filters    with your experience Indeed Quick Apply
-  salary, keywords                         files as context     Greenhouse, Lever
-                                                                Workday, Ashby
-```
-
-1. **Search** — Playwright-based scrapers find jobs on enabled platforms
-2. **Score** — Each job rated against your preferences (title, location, salary, keywords)
-3. **Filter** — Jobs below your minimum score or on the blacklist are skipped
-4. **Generate** — AI creates a tailored resume and cover letter using your experience files
-5. **Apply** — Bot fills out application forms, uploads documents, and submits
-6. **Track** — Every application saved to SQLite with status, score, and generated documents
-
-## Configuration
-
-All settings are managed through the dashboard UI. Key options:
-
-| Setting | Description |
-|---------|-------------|
-| **Job Titles** | Roles to search for (e.g., "Software Engineer", "Program Manager") |
-| **Locations** | Where to search (e.g., "Remote", "New York, NY") |
-| **Min Match Score** | Only apply to jobs scoring above this threshold (default: 75) |
-| **Apply Mode** | `full_auto` (hands-free), `review` (approve each), or `watch` (observe only) |
-| **Max Applications/Day** | Daily cap to avoid rate limiting (default: 50) |
-| **Application Answers** | Pre-fill screening questions (work auth, visa, experience, salary, EEO) |
-| **Schedule** | Days and hours for automatic operation |
-| **Company Blacklist** | Companies to always skip |
-
-## Project Structure
-
-```
-AutoApply/
-├── app.py                  # Flask + SocketIO backend (API, WebSocket events)
-├── run.py                  # Entry point (port detection, server launch)
-├── config/settings.py      # Pydantic config models
-├── db/database.py          # SQLite database layer
-├── core/
-│   ├── ai_engine.py        # Multi-provider LLM API for document generation
-│   ├── filter.py           # Job scoring and ATS detection
-│   ├── resume_renderer.py  # PDF resume generation (ReportLab)
-│   ├── scheduler.py        # Time-based bot scheduling
-│   ├── knowledge_base.py   # KB CRUD, LLM extraction, resume ingestion
-│   ├── document_parser.py  # PDF/DOCX/TXT/MD text extraction
-│   ├── resume_parser.py    # Markdown resume → KB entries
-│   ├── resume_scorer.py    # TF-IDF cosine similarity scoring
-│   ├── jd_analyzer.py      # JD keyword extraction, section detection
-│   ├── experience_calculator.py  # Domain-specific years from roles
-│   ├── resume_assembler.py # Score, select, render, compile resumes from KB
-│   ├── latex_compiler.py   # LaTeX → PDF compilation (TinyTeX/pdflatex)
-│   ├── ats_scorer.py       # ATS compatibility scoring (6 platforms)
-│   ├── ats_profiles.py     # ATS platform-specific scoring profiles
-│   └── kb_migrator.py      # Auto-migrate legacy .txt/.md files to KB
-├── bot/
-│   ├── bot.py              # Main bot loop (search → filter → generate → apply)
-│   ├── browser.py          # Playwright browser manager
-│   ├── search/             # LinkedIn and Indeed scrapers
-│   └── apply/              # Platform-specific appliers (LinkedIn, Indeed, Greenhouse, Lever, Workday, Ashby)
-├── templates/index.html    # Single-page dashboard (HTML shell)
-├── static/
-│   ├── css/main.css        # Extracted stylesheet
-│   ├── js/                 # 17 ES modules (app.js entry point)
-│   └── locales/en.json     # i18n string catalog (430+ keys, 25 sections)
-├── routes/                 # 8 Flask Blueprints (bot, applications, config, profile, login, analytics, lifecycle, knowledge_base)
-├── electron/               # Electron desktop shell
-│   ├── main.js             # App window, tray, lifecycle
-│   ├── python-backend.js   # Python process management
-│   ├── icons/              # Generated app icons (PNG, ICO, ICNS)
-│   └── scripts/            # Build scripts (version sync, icon gen, Python bundling)
-├── tests/                  # 1385 tests (pytest)
-└── docs/                   # User and developer documentation
-```
-
-## Documentation
-
-| Guide | Description |
-|-------|-------------|
-| [Setup & Installation](docs/guides/setup.md) | Install, first launch, platform login |
-| [How the Bot Works](docs/guides/how-the-bot-works.md) | Full pipeline — searching, scoring, applying |
-| [Writing Experience Files](docs/guides/experience-files.md) | Describe your background for better AI-generated resumes |
-| [How AI Generation Works](docs/guides/ai-generation.md) | What happens when AutoApply creates your documents |
-| [Application Flow](docs/architecture/application-flow.md) | Flowcharts for the full bot pipeline |
-| [Configuration](docs/guides/configuration.md) | All settings explained |
-| [Knowledge Base](docs/guides/knowledge-base.md) | Upload documents, build KB, assemble resumes with zero API calls |
-| [Troubleshooting](docs/guides/troubleshooting.md) | Common problems and fixes |
-| [API Reference](docs/api/endpoints.md) | REST API for developers |
-| [Changelog](CHANGELOG.md) | Version history |
-
-## Your Data
-
-Everything stays on your machine at `~/.autoapply/`:
-
-```
-~/.autoapply/
-├── config.json              # Your settings
-├── autoapply.db             # Application history + Knowledge Base (SQLite)
-├── profile/
-│   ├── experiences/         # Your background (.txt files fed to AI)
-│   ├── uploads/             # Uploaded career documents (PDF, DOCX, TXT, MD)
-│   ├── resumes/             # Generated resumes (PDF)
-│   ├── cover_letters/       # Generated cover letters
-│   └── job_descriptions/    # Saved job postings (HTML)
-├── browser_profile/         # Chrome login sessions (persisted)
-└── backend.log              # Server logs
-```
-
-## Testing
-
-```bash
-python -m pytest tests/ -v
-```
-
-1385 tests covering settings, database, API endpoints, bot logic, AI engine, scoring/filtering, resume rendering, scheduling, login flow, applier modules, i18n, accessibility, security hardening, resilience, analytics, resume versioning, knowledge base, TF-IDF scoring, LaTeX compilation, ATS scoring, resume assembly, performance, intelligence, and migration.
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python, Flask, Flask-SocketIO, gevent |
-| Database | SQLite (stdlib `sqlite3`) |
-| Browser automation | Playwright (persistent context, system Chrome) |
-| AI | Multi-provider LLM API (Anthropic, OpenAI, Google, DeepSeek) |
-| PDF generation | ReportLab (fallback), LaTeX via Jinja2 templates (KB assembly) |
-| Config | Pydantic v2 |
-| Desktop | Electron |
-| Frontend | Vanilla JS SPA (17 ES modules, no build step) |
-| i18n | JSON locale files (`static/locales/`) with `t()` translation function |
-| Accessibility | WCAG 2.1 AA (ARIA, keyboard nav, focus management, reduced motion) |
-| Tests | pytest (1385 tests, 97% coverage on core modules) |
-
-## Disclaimer
-
-> **This software is provided for educational and personal-use purposes only.**
->
-> - AutoApply automates interactions with third-party platforms (LinkedIn, Indeed, Greenhouse, Lever, Workday, Ashby). **Using automated tools may violate the Terms of Service of these platforms.** You are solely responsible for ensuring your use complies with all applicable terms, policies, and laws.
-> - The authors and contributors are **not responsible** for any consequences arising from the use of this software, including but not limited to: account suspension or termination, legal action from platform providers, rejected or misattributed job applications, or any other damages.
-> - This software is provided **"as is"** without warranty of any kind. Use it **at your own risk**.
-> - The authors do not endorse or encourage violation of any platform's Terms of Service.
-
-## Contributing
-
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Make changes and add tests
-4. Run `python -m pytest tests/ -v` to verify
-5. Submit a pull request
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
+Para outra conta, crie um fork pelo botão Fork do original e altere `origin`. Preserve a licença MIT.

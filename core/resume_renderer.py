@@ -113,7 +113,13 @@ def render_resume_to_pdf(resume_md_text: str, resume_pdf_path: Path) -> None:
             else:
                 if cur:
                     lines.append(cur)
-                cur = word
+                # Split long URLs/tokens instead of drawing beyond the page.
+                cur = ""
+                for char in word:
+                    if c.stringWidth(cur + char, font, size) > max_w and cur:
+                        lines.append(cur)
+                        cur = ""
+                    cur += char
         if cur:
             lines.append(cur)
 
@@ -131,6 +137,9 @@ def render_resume_to_pdf(resume_md_text: str, resume_pdf_path: Path) -> None:
         """Draw a two-column line: left-aligned + right-aligned."""
         nonlocal y
         lh = max(left_size, right_size) * LINE_HEIGHT
+        if text_width(left, left_font, left_size) + text_width(right, right_font, right_size) + 20 > usable_width:
+            draw_wrapped(left + " - " + right, left_font, left_size, x, usable_width - CONTENT_INDENT)
+            return
         check_space(lh)
 
         # Left side
@@ -165,6 +174,12 @@ def render_resume_to_pdf(resume_md_text: str, resume_pdf_path: Path) -> None:
             check_space(SIZE_NAME * LINE_HEIGHT + CONTACT_SPACE)
             c.setFont(FONT_BOLD, SIZE_NAME)
             name_w = c.stringWidth(name, FONT_BOLD, SIZE_NAME)
+            if name_w > usable_width:
+                draw_wrapped(name, FONT_BOLD, SIZE_NAME, MARGIN_LEFT, usable_width)
+                y += SIZE_NAME * LINE_HEIGHT - 14
+                after_h1 = True
+                i += 1
+                continue
             c.drawString((page_width - name_w) / 2, y, name)
             y -= 14  # just clear descenders, keep contact tight
             after_h1 = True
@@ -180,8 +195,11 @@ def render_resume_to_pdf(resume_md_text: str, resume_pdf_path: Path) -> None:
             # Strip markdown link syntax: [text](url) → text
             contact = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", stripped)
             contact_w = c.stringWidth(contact, FONT_NORMAL, SIZE_BODY)
-            c.drawString((page_width - contact_w) / 2, y, contact)
-            y -= SIZE_BODY * LINE_HEIGHT
+            if contact_w > usable_width:
+                draw_wrapped(contact, FONT_NORMAL, SIZE_BODY, MARGIN_LEFT, usable_width)
+            else:
+                c.drawString((page_width - contact_w) / 2, y, contact)
+                y -= SIZE_BODY * LINE_HEIGHT
             i += 1
             continue
 
@@ -221,9 +239,7 @@ def render_resume_to_pdf(resume_md_text: str, resume_pdf_path: Path) -> None:
                 )
             else:
                 check_space(SIZE_COMPANY * LINE_HEIGHT)
-                c.setFont(FONT_BOLD, SIZE_COMPANY)
-                c.drawString(MARGIN_LEFT + CONTENT_INDENT, y, heading)
-                y -= SIZE_COMPANY * LINE_HEIGHT
+                draw_wrapped(heading, FONT_BOLD, SIZE_COMPANY, MARGIN_LEFT + CONTENT_INDENT, usable_width - CONTENT_INDENT)
 
             # Look ahead: next line might be "**Title** | Dates" or "*Degree* | Dates"
             if i + 1 < len(lines):
@@ -250,11 +266,7 @@ def render_resume_to_pdf(resume_md_text: str, resume_pdf_path: Path) -> None:
                     else:
                         check_space(SIZE_BODY * LINE_HEIGHT)
                         left_plain = BOLD_RE.sub(r"\1", next_stripped)
-                        c.setFont(FONT_ITALIC, SIZE_BODY)
-                        c.drawString(
-                            MARGIN_LEFT + CONTENT_INDENT, y, left_plain,
-                        )
-                        y -= SIZE_BODY * LINE_HEIGHT
+                        draw_wrapped(left_plain, FONT_ITALIC, SIZE_BODY, MARGIN_LEFT + CONTENT_INDENT, usable_width - CONTENT_INDENT)
                     i += 1  # consumed the look-ahead line
 
             y -= SUBHEADING_SPACE_AFTER
