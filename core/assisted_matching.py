@@ -18,6 +18,13 @@ def entry_text(entry):
         " ".join(str(entry.get(k) or "") for k in ("text", "title", "organization", "proficiency"))
         + " "
         + " ".join(entry.get("technologies", []))
+        + " "
+        + " ".join(
+            " ".join(str(a.get(k) or "") for k in ("title", "text"))
+            + " "
+            + " ".join(a.get("technologies", []))
+            for a in entry.get("activities", [])
+        )
     )
 
 
@@ -29,6 +36,22 @@ def select_entries(profile, job, limit=24):
     # Preserve education and language context; use whole facts, never generated claims.
     essential = [e for e in ranked if e["category"] in ("education", "language")]
     return (essential + [e for e in ranked if e not in essential])[:limit]
+
+
+def select_activity_evidence(entries, job):
+    """Select relevant child evidence while keeping the contractual relationship intact."""
+    selected = []
+    for entry in entries:
+        activities = entry.get("activities", [])
+        ranked = sorted(
+            ((compute_tfidf_score(job["description"], entry_text(a)), a) for a in activities),
+            key=lambda pair: pair[0],
+            reverse=True,
+        )
+        relevant = [activity for score, activity in ranked if score > 0]
+        # A generic vacancy may have no shared vocabulary; do not invent a distinction.
+        selected.append({**entry, "activities": relevant or activities})
+    return selected
 
 
 def professional_months(entries):
@@ -109,25 +132,14 @@ def evaluate(profile, criteria, job, blacklist=()):
             blockers.append("Senioridade publicada difere da preferência")
         elif not job.get("seniority"):
             unknowns.append("Senioridade não informada")
-    if criteria.remote_only and job.get("work_mode") not in (None, "remote"):
-        blockers.append("Modalidade incompatível com remoto")
-    if criteria.remote_only and not job.get("work_mode"):
-        unknowns.append("Trabalho remoto não confirmado")
     eligibility = location_eligibility(profile, criteria, job)
-    if eligibility["state"] == "incompatible":
-        blockers.extend(eligibility["reasons"])
-    elif eligibility["state"] == "review":
-        unknowns.extend(eligibility["reasons"])
+    unknowns.extend(p["message"] for p in eligibility["pending"])
     if (
         criteria.employment_types
         and job.get("employment_type")
         and not any(x.lower() in job["employment_type"].lower() for x in criteria.employment_types)
     ):
         blockers.append("Jornada publicada difere da preferência")
-    if criteria.needs_sponsorship is True and re.search(
-        r"(no|not|without).{0,35}(visa sponsorship|sponsor.{0,15}visa)", lower
-    ):
-        blockers.append("Descrição informa ausência de patrocínio de visto")
     if criteria.keywords_exclude and any(k.lower() in combined for k in criteria.keywords_exclude):
         blockers.append("Palavra-chave excluída encontrada")
     if any(c.lower() == job["company"].lower() for c in blacklist):
@@ -178,7 +190,15 @@ def evaluate(profile, criteria, job, blacklist=()):
         )
         for e in language_entries
     ):
-        blockers.append("Inglês fluente solicitado; proficiência não confirmada")
+        if not any(
+            "english" in entry_text(e).lower() or "inglês" in entry_text(e).lower()
+            for e in language_entries
+        ):
+            unknowns.append(
+                "Inglês fluente solicitado; proficiência ainda não informada para revisão"
+            )
+        else:
+            blockers.append("Inglês fluente solicitado; proficiência não confirmada")
     score = round(100 * sum(w * s for w, s in components) / sum(w for w, _ in components))
     score = max(0, min(100, score - 15 * len(blockers)))
     recommendation = (
@@ -192,6 +212,8 @@ def evaluate(profile, criteria, job, blacklist=()):
     )
     return dict(
         eligibility=eligibility,
+        professional_score=score,
+        ranking_score=score + 2 * eligibility["country_priority"],
         score=score,
         matches=matches,
         gaps=gaps,

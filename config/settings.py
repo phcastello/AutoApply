@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -194,9 +195,40 @@ class UserProfile(BaseModel):
         return data
 
 
+class RelocationDestination(BaseModel):
+    country: str = Field(min_length=1, max_length=100)
+    priority: Literal["S", "A", "B", "C", "D"] | None = None
+
+
+class MobilityPreferences(BaseModel):
+    direct_locations: list[str] = []
+    domestic_relocation: bool | None = None
+    international_relocation: bool | None = None
+    destinations: list[RelocationDestination] = []
+    relocation_conditions: str = ""
+    remote_enabled: bool = True
+    available_from: str = ""
+    availability_notes: str = ""
+    work_authorization_countries: list[str] = []
+    salary_min: float | None = Field(default=None, ge=0)
+    salary_currency: str = ""
+    salary_period: Literal["annual", "monthly", "hourly"] | None = None
+
+    @model_validator(mode="after")
+    def unique_destinations(self):
+        from core.geo_names import country
+
+        keys = [country(d.country) for d in self.destinations]
+        if any(not k for k in keys) or len(keys) != len(set(keys)):
+            raise ValueError("Escolha cada país de destino uma única vez")
+        return self
+
+
 class SearchCriteria(BaseModel):
     job_titles: list[str]
     locations: list[str]
+    attendance_cities: list[str] = []  # Preserve older configurations, too.
+    mobility: MobilityPreferences = MobilityPreferences()
     remote_only: bool = False
     salary_min: int | None = None
     keywords_include: list[str] = []
@@ -217,6 +249,83 @@ class SearchCriteria(BaseModel):
     lever_boards: list[str] = ["ciandt"]
     max_results: int = Field(default=20, ge=1, le=100)
     source_names: dict[str, str] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_mobility(cls, data):
+        if isinstance(data, dict) and ("mobility" not in data or data["mobility"] is None):
+            data = dict(data)
+            modes = data.get("work_modes", [])
+            willingness = data.get("willing_to_relocate")
+            from core.geo_names import country
+
+            legacy_destinations = {}
+            for name in data.get("countries", []):
+                if country(name):
+                    legacy_destinations.setdefault(country(name), name)
+            data["mobility"] = dict(
+                direct_locations=list(
+                    dict.fromkeys([*data.get("attendance_cities", []), *data.get("locations", [])])
+                ),
+                domestic_relocation=willingness if willingness is not None else False,
+                international_relocation=willingness,
+                destinations=[dict(country=c) for c in legacy_destinations.values()],
+                remote_enabled=bool(data.get("remote_only") or not modes or "remote" in modes),
+                salary_min=data.get("salary_min"),
+            )
+        return data
+
+
+def merge_search_criteria(existing, patch):
+    """Legacy editors can still edit their fields without leaving two active policies."""
+    merged = {**existing, **patch}
+    if "mobility" in patch:
+        if not isinstance(patch["mobility"], dict):
+            return merged
+        merged["mobility"] = {**existing.get("mobility", {}), **patch["mobility"]}
+        if isinstance(patch["mobility"].get("direct_locations"), list):
+            merged["locations"] = list(patch["mobility"]["direct_locations"])
+        if isinstance(patch["mobility"].get("destinations"), list) and all(
+            isinstance(d, dict) and isinstance(d.get("country"), str)
+            for d in patch["mobility"]["destinations"]
+        ):
+            merged["countries"] = [d["country"] for d in patch["mobility"]["destinations"]]
+    elif any(
+        k in patch
+        for k in (
+            "locations",
+            "attendance_cities",
+            "countries",
+            "willing_to_relocate",
+            "remote_only",
+            "work_modes",
+        )
+    ):
+        mobility = dict(existing.get("mobility", {}))
+        if "locations" in patch or "attendance_cities" in patch:
+            if any(
+                k in patch and not isinstance(patch[k], list)
+                for k in ("locations", "attendance_cities")
+            ):
+                return merged
+            mobility["direct_locations"] = list(
+                dict.fromkeys([*patch.get("attendance_cities", []), *patch.get("locations", [])])
+            )
+        if "countries" in patch:
+            if not isinstance(patch["countries"], list):
+                return merged
+            mobility["destinations"] = [dict(country=c) for c in patch["countries"]]
+        if "willing_to_relocate" in patch:
+            mobility.update(
+                domestic_relocation=patch["willing_to_relocate"],
+                international_relocation=patch["willing_to_relocate"],
+            )
+        if patch.get("remote_only") is True:
+            mobility["remote_enabled"] = True
+        elif isinstance(patch.get("work_modes"), list):
+            mobility["remote_enabled"] = not patch["work_modes"] or "remote" in patch["work_modes"]
+        merged["mobility"] = mobility
+    return merged
 
 
 class ScheduleConfig(BaseModel):

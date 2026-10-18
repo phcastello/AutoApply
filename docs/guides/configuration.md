@@ -24,12 +24,26 @@ What jobs AutoApply looks for.
 | Setting | Description |
 |---------|-------------|
 | Job titles | Titles to search for (e.g., "Software Engineer", "Backend Developer") |
-| Locations | Where to look (e.g., "San Francisco, CA", "Remote") |
+| Directly accepted locations | Cities accepted for on-site/hybrid work without relocation conditions; migrated from existing locations |
+| Relocation destinations | User-configured countries; any city can be considered, without registering municipalities |
+| Country priorities | Optional S/A/B/C/D tiers affect ranking without excluding selected destinations |
+| Mobility | Domestic and international relocation availability, conditions and future availability |
+| Current residence | Maintained in the profile, independently from destinations and directly accepted locations |
 | Remote only | Only show remote positions |
-| Minimum salary | Skip jobs below this annual salary |
+| Financial target | Compare only when amount, currency and payment period are sufficient; missing or incomparable information requires review |
 | Include keywords | Prefer jobs containing these words (adds to match score) |
 | Exclude keywords | Skip jobs containing these words (e.g., "junior", "intern") |
 | Experience levels | Target levels: "mid", "senior", "staff", etc. |
+
+### Professional mobility in the assisted dashboard
+
+Open **Preferências de vagas → Mobilidade profissional**. Choose accepted work modes, review migrated direct locations, set domestic/international relocation availability, add countries and priorities, and describe the conditions that would justify a move. Cities are optional for international relocation. Set an optional availability date and financial target; declare work authorization only for countries where you actually hold it. A saved summary explains the resulting rules. New profiles start with no destination countries; personal destination lists are stored in local configuration, never as application defaults.
+
+Geographic results use five labels: **Localidade diretamente aceita**, **Remoto compatível**, **Oportunidade com realocação**, **Necessita revisão** and **Fora das preferências**. Remote compatibility requires permission to hire and work from the candidate's residence, regardless of the employer's headquarters. A remote vacancy requiring residence in a selected foreign country is conditional on relocation. Unconfirmed residence, ambiguous locations, work authorization, sponsorship, salary, language and start dates produce specific review items. Willingness to relocate never proves immigration eligibility.
+
+Professional compatibility is scored independently. The default ranking adds a small country-priority bonus; users can also sort by professional fit, country priority or need to move. Discovery evaluates and ranks all geographically relevant records before applying the result limit. Outside-preference opportunities remain distinguishable in history. Both configuration APIs reevaluate saved jobs when preferences change, preserving application IDs, status, discovery dates and resume versions. Searchers use country-wide queries rather than requiring city enumeration.
+
+Legacy `locations` and `attendance_cities` migrate into `search_criteria.mobility.direct_locations`; existing countries and relocation preferences are preserved. `mobility` is the authoritative policy, with compatibility mirrors for legacy editors. Financial thresholds never imply a currency conversion, net salary or affordable cost of living. [Lever's official Postings API](https://github.com/lever/postings-api) documents salary ranges; [its developer reference](https://hire.lever.co/developer/documentation) defines payment intervals. Published [Greenhouse pay ranges](https://docs.greenhouse.io/job-board) are preserved for review when payment period or applicable region is unknown.
 
 ## Application Answers
 

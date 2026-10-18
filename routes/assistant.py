@@ -10,7 +10,7 @@ from flask import Blueprint, abort, jsonify, request, send_file
 from pydantic import ValidationError
 
 import app_state
-from config.settings import AppConfig, get_data_dir, load_config, save_config
+from config.settings import AppConfig, get_data_dir, load_config, merge_search_criteria, save_config
 from core.ai_configuration import public_llm, resolve_draft
 from core.ai_engine import AIProviderError
 from core.assisted_matching import evaluate
@@ -24,8 +24,9 @@ from core.assisted_workflow import (
 )
 from core.document_parser import extract_import_text
 from core.job_discovery import verify_url
+from core.location_rules import geographic_rank
 from core.profile_import import basic_text_draft, draft_profile, intelligent_draft
-from core.profile_schema import deduplicate
+from core.profile_schema import reconcile_import
 from core.work_preferences import outside_preferences
 
 assistant_bp = Blueprint("assistant", __name__)
@@ -99,7 +100,10 @@ def put_configuration():
         if section in data:
             if not isinstance(data[section], dict):
                 abort(400, description="Seção inválida")
-            merged[section].update(data[section])
+            if section == "search_criteria":
+                merged[section] = merge_search_criteria(merged[section], data[section])
+            else:
+                merged[section].update(data[section])
     if "company_blacklist" in data:
         merged["company_blacklist"] = data["company_blacklist"]
     try:
@@ -169,6 +173,7 @@ def jobs():
             config.profile, config.search_criteria, job, config.company_blacklist
         )
         job["outside_preferences"] = outside_preferences(job["match"])
+    result.sort(key=lambda job: geographic_rank(job["match"]), reverse=True)
     return jsonify(jobs=result)
 
 
@@ -319,11 +324,13 @@ def import_document():
     except AIProviderError as e:
         return jsonify(error=e.as_dict()), 422
     except ValidationError:
-        return jsonify(error="O documento não pôde ser representado no esquema de perfil. Revise ou divida o documento; nenhuma informação foi aplicada."), 422
+        return jsonify(
+            error="O documento não pôde ser representado no esquema de perfil. Revise ou divida o documento; nenhuma informação foi aplicada."
+        ), 422
     except ValueError as e:
         return jsonify(error=str(e)), 422
     existing = [e.model_dump() for e in current_config().profile.career_entries]
-    draft["entries"], duplicates = deduplicate(draft["entries"], existing)
+    draft["entries"], draft["updates"], duplicates = reconcile_import(draft["entries"], existing)
     draft["duplicate_count"] = draft.get("duplicate_count", 0) + duplicates
     return jsonify(draft)
 

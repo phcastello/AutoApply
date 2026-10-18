@@ -41,7 +41,9 @@ class LinkedInSearcher(BaseSearcher):
         found = 0
 
         for title in criteria.job_titles:
-            for location in criteria.locations:
+            from core.location_rules import search_locations
+
+            for location in search_locations(criteria):
                 if found >= max_results:
                     return
 
@@ -52,18 +54,16 @@ class LinkedInSearcher(BaseSearcher):
                 except Exception as e:
                     logger.error(
                         "LinkedIn search failed for '%s' in '%s': %s",
-                        title, location, e,
+                        title,
+                        location,
+                        e,
                     )
 
     def _search_page(
         self, page, title: str, location: str, criteria, remaining: int
     ) -> Iterator[RawJob]:
         """Search a single title+location combination."""
-        url = (
-            f"{LINKEDIN_SEARCH_URL}"
-            f"?keywords={quote_plus(title)}"
-            f"&location={quote_plus(location)}"
-        )
+        url = f"{LINKEDIN_SEARCH_URL}?keywords={quote_plus(title)}&location={quote_plus(location)}"
         if criteria.remote_only:
             url += "&f_WT=2"  # LinkedIn remote filter
 
@@ -74,8 +74,7 @@ class LinkedInSearcher(BaseSearcher):
         # Check if logged in
         if "login" in page.url or "authwall" in page.url:
             logger.warning(
-                "LinkedIn requires login. Please log in via the browser "
-                "and restart the bot."
+                "LinkedIn requires login. Please log in via the browser and restart the bot."
             )
             return
 
@@ -84,9 +83,7 @@ class LinkedInSearcher(BaseSearcher):
 
         while found < remaining:
             job_cards = page.query_selector_all(
-                ".jobs-search-results__list-item, "
-                ".job-card-container, "
-                "[data-occludable-job-id]"
+                ".jobs-search-results__list-item, .job-card-container, [data-occludable-job-id]"
             )
 
             if not job_cards:
@@ -108,8 +105,7 @@ class LinkedInSearcher(BaseSearcher):
             # Try next page
             page_num += 1
             next_btn = page.query_selector(
-                "button[aria-label='Next'], "
-                ".artdeco-pagination__button--next"
+                "button[aria-label='Next'], .artdeco-pagination__button--next"
             )
             if not next_btn or not next_btn.is_enabled():
                 break
@@ -144,9 +140,7 @@ class LinkedInSearcher(BaseSearcher):
             ".jobs-unified-top-card__bullet"
         )
         desc_el = page.query_selector(
-            ".jobs-description__content, "
-            ".jobs-box__html-content, "
-            "#job-details"
+            ".jobs-description__content, .jobs-box__html-content, #job-details"
         )
 
         title = title_el.inner_text().strip() if title_el else None

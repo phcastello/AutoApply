@@ -28,6 +28,7 @@ class ScoredJob:
     score: int
     pass_filter: bool
     skip_reason: str | None
+    geography: dict | None = None
 
 
 # ATS fingerprints for URL-based detection
@@ -98,8 +99,11 @@ def score_job(
     # Deduplication
     if db is not None and db.exists(raw_job.external_id, raw_job.platform):
         return ScoredJob(
-            id=job_id, raw=raw_job, score=0,
-            pass_filter=False, skip_reason="Already applied",
+            id=job_id,
+            raw=raw_job,
+            score=0,
+            pass_filter=False,
+            skip_reason="Already applied",
         )
 
     # Blacklisted company
@@ -107,7 +111,9 @@ def score_job(
     for blacklisted in config.company_blacklist:
         if blacklisted.lower() in company_lower:
             return ScoredJob(
-                id=job_id, raw=raw_job, score=0,
+                id=job_id,
+                raw=raw_job,
+                score=0,
                 pass_filter=False,
                 skip_reason=f"Blacklisted company: {blacklisted}",
             )
@@ -116,7 +122,9 @@ def score_job(
     for kw in criteria.keywords_exclude:
         if kw.lower() in combined_lower:
             return ScoredJob(
-                id=job_id, raw=raw_job, score=0,
+                id=job_id,
+                raw=raw_job,
+                score=0,
                 pass_filter=False,
                 skip_reason=f"Excluded keyword: {kw}",
             )
@@ -152,22 +160,24 @@ def score_job(
             score += 10  # Couldn't parse — give benefit of doubt
 
     # Location match (0-20)
-    job_location_lower = raw_job.location.lower()
-    if criteria.remote_only and "remote" in job_location_lower:
-        score += 20
-    elif not criteria.remote_only:
-        for loc in criteria.locations:
-            if loc.lower() in job_location_lower:
-                score += 20
-                break
-        else:
-            # Check for same country (rough heuristic)
-            if any(
-                loc.lower().split(",")[-1].strip() in job_location_lower
-                for loc in criteria.locations
-                if "," in loc
-            ):
-                score += 10
+    from core.location_rules import location_eligibility
+
+    mode = getattr(raw_job, "work_mode", None)
+    if mode is None and any(w in raw_job.location.lower() for w in ("remote", "remoto")):
+        mode = "remote"
+    geography = location_eligibility(
+        config.profile,
+        criteria,
+        dict(
+            location=raw_job.location,
+            description=raw_job.description,
+            work_mode=mode,
+            salary=raw_job.salary,
+            remote_countries=getattr(raw_job, "remote_countries", []),
+        ),
+    )
+    # Unknown conditions do not reduce a candidate's professional fit.
+    score += 0 if geography["category"] == "outside" else 20
 
     # Keyword match (0-25, +5 per keyword, max 25)
     kw_score = 0
@@ -183,8 +193,12 @@ def score_job(
     skip_reason = None if pass_filter else f"Score {score} below threshold {min_score}"
 
     return ScoredJob(
-        id=job_id, raw=raw_job, score=score,
-        pass_filter=pass_filter, skip_reason=skip_reason,
+        id=job_id,
+        raw=raw_job,
+        score=score,
+        pass_filter=pass_filter,
+        skip_reason=skip_reason,
+        geography=geography,
     )
 
 

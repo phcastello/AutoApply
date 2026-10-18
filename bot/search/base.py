@@ -26,6 +26,8 @@ class RawJob:
     platform: str  # "linkedin" | "indeed"
     external_id: str  # Platform-specific ID for deduplication
     posted_at: str | None
+    work_mode: str | None = None
+    remote_countries: tuple[str, ...] = ()
 
 
 class BaseSearcher(ABC):

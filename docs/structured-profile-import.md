@@ -1,5 +1,21 @@
 # Correção da importação de perfil
 
+## Atualização: atuações por cliente ou projeto
+
+O reconhecimento de `Atuação com <cliente>:` e `Atuação para <cliente>:` agora produz atividades estruturadas dentro da empresa prestadora. Subtítulos aninhados e subtítulos explicitamente chamados de atuação recebem o mesmo agrupamento. O cliente autorizado de um vínculo que informa uma data própria de atuação também recebe uma atividade. Essas datas não alteram o período do vínculo nem o cálculo de experiência, que continua unindo somente os períodos das empresas.
+
+O teste contra o parser anterior confirmou a perda: o fixture fictício tinha dois vínculos, mas somente uma atividade (a PoC); as duas atuações nomeadas estavam em `date_notes`, e o cliente da segunda empresa não tinha atividade. A extração corrigida mantém dois vínculos e quatro atividades (três e uma), com aproximações, tecnologias, autoria individual e contexto não comercial da PoC preservados. A versão do mecanismo de importação passa a 3; o esquema de armazenamento das atividades permanece compatível.
+
+Na revisão e no perfil salvo, **Atuações por cliente ou projeto** permite adicionar, editar título/descrição/período/tecnologias e excluir atividades. A empresa contratual é identificada explicitamente. Editar atividades no perfil pede nova confirmação do vínculo; editar ou cancelar uma proposta de importação não altera a confirmação já existente. Textos longos e datas aproximadas podem ser revisados sem truncamento em campos de múltiplas linhas.
+
+A reimportação retorna `updates` separadamente de novas `entries`. Cada proposta contém `target_id`, `before`, `proposed`, `incoming` e a quantidade de atividades novas. A identidade usa empresa/cargo/início; para o mesmo documento, uma correção manual do cargo também é preservada. Cargos ou períodos distintos não são unidos por similaridade. A revisão mostra antes/depois e exige marcar **Atualizar este vínculo existente (preservar ID)**. Campos e atividades anteriores são mantidos, inclusive a PoC cujo título era encurtado pelo mecanismo anterior; somente atividades ausentes são acrescentadas. A escolha de aplicar como rascunho ou confirmar é explícita, e a persistência salva backup do perfil anterior, sem credenciais. O histórico de currículos e os IDs existentes não são reescritos.
+
+Matching local e seleção por IA consideram títulos, descrições e tecnologias das atividades. A seleção por IA continua escolhendo IDs dos vínculos, com atividades públicas subordinadas. Na montagem de PDF/DOCX, as atividades com relevância textual para a vaga são selecionadas dentro do mesmo vínculo; se a vaga não fornece vocabulário suficiente para diferenciá-las, o grupo é preservado. A seleção não modifica o perfil salvo. Observações de datas, trechos de origem e instruções internas ficam fora do conteúdo profissional e do prompt de seleção. O contexto factual de uma PoC sem contrato permanece público, sem se transformar em alegação de implantação comercial.
+
+Validação: 161 testes de regressão passaram, cobrindo importação, Markdown/PDF/DOCX/TXT, matching, seleção por IA simulada, geração e extração de PDF/DOCX, proveniência, edição no navegador, reimportação explícita, preservação de confirmação, backup, deduplicação, períodos simultâneos e cálculo de experiência. O fixture adicional `tests/fixtures/client_activities.md` é inteiramente fictício. Ruff e a verificação de whitespace também foram executados.
+
+O documento real foi validado no Chromium de teste, em diretório privado isolado: dois vínculos, atividades agrupadas em três e uma, atualização desmarcada por padrão, cancelamento sem alteração, mesmos IDs, persistência após reinício e 17 fatos ignorados como duplicatas na reimportação seguinte. Nenhum erro de JavaScript. Documento, extrações, capturas e backups ficaram em `.validation/client-real-verified/`, ignorado pelo Git. O perfil de uso normal não foi substituído automaticamente; a atualização fica disponível para revisão. Nenhum commit ou push foi feito.
+
 Verificação em 18/10/2026 no checkout existente, branch `mvp-assisted`. Alterações locais anteriores foram preservadas; nenhum commit, push ou PR foi feito.
 
 ## Reprodução e causa confirmada

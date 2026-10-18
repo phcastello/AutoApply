@@ -113,6 +113,67 @@ def deduplicate(entries, existing=()):
     return result, len(entries) - len(result)
 
 
+def activity_identity(activity):
+    # v2 omitted the prospect qualifier from nested PoC titles.
+    return re.split(r"\s+para prospeccao\b", normalized(activity["title"]), maxsplit=1)[0]
+
+
+def reconcile_import(entries, existing):
+    """Propose additive enrichment of a uniquely identified relationship, never apply it."""
+    new, updates, duplicates = [], [], 0
+    for entry in entries:
+        matches = [
+            e
+            for e in existing
+            if e.get("category") == entry.get("category") == "experience"
+            and normalized(e.get("organization", "")) == normalized(entry.get("organization", ""))
+            and e.get("start_date") == entry.get("start_date")
+            and (
+                normalized(e.get("title", "")) == normalized(entry.get("title", ""))
+                or (
+                    e.get("source_document_id")
+                    and e.get("source_document_id") == entry.get("source_document_id")
+                )
+            )
+        ]
+        exact = any(
+            entry.get("import_key") == e.get("import_key")
+            or entry_fingerprint(entry) == entry_fingerprint(e)
+            for e in existing
+        )
+        if exact:
+            duplicates += 1
+        elif len(matches) == 1:
+            old = matches[0]
+            known = {activity_identity(a) for a in old.get("activities", [])}
+            additions = [
+                a for a in entry.get("activities", []) if activity_identity(a) not in known
+            ]
+            # Parent fields and existing activities (including manual corrections) win.
+            proposed = {**old, "activities": [*old.get("activities", []), *additions]}
+            proposed["date_notes"] = [
+                n
+                for n in old.get("date_notes", [])
+                if not normalized(n).startswith(("atuacao com ", "atuacao para "))
+            ]
+            if additions or proposed["date_notes"] != old.get("date_notes", []):
+                proposed.update(import_key=entry["import_key"], import_version=3, confirmed=False)
+                updates.append(
+                    dict(
+                        target_id=old["id"],
+                        before=old,
+                        proposed=proposed,
+                        incoming=entry,
+                        added_activities=len(additions),
+                    )
+                )
+            else:
+                duplicates += 1
+        else:
+            new.append(entry)
+    return new, updates, duplicates
+
+
 def public_draft(draft, source, text, *, mode, ai_used=False):
     data = draft.model_dump()
     entries = []
@@ -141,7 +202,7 @@ def public_draft(draft, source, text, *, mode, ai_used=False):
                 confirmed=False,
                 import_mode=mode,
                 import_engine="llm-schema" if ai_used else "structured-local",
-                import_version=2,
+                import_version=3,
                 source_document_id=stable_id("doc-", text),
             )
         )

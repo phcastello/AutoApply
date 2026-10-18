@@ -80,7 +80,7 @@ def test_structured_fields_not_raw_markdown(document):
     assert all(
         e["import_mode"] == "structured"
         and e["import_engine"] == "structured-local"
-        and e["import_version"] == 2
+        and e["import_version"] == 3
         for e in result["entries"]
     )
     assert not any(
@@ -103,8 +103,8 @@ def test_overlapping_employments_and_nested_activity(document):
         ("Empresa Aurora", "2025-02", "presente"),
         ("Estúdio Boreal", "2026-08", "presente"),
     ]
-    assert len(jobs[0]["activities"]) == 1 and not jobs[1]["activities"]
-    assert "julho" in jobs[0]["activities"][0]["end_date"]
+    assert len(jobs[0]["activities"]) == 2 and not jobs[1]["activities"]
+    assert "julho" in jobs[0]["activities"][1]["end_date"]
     assert "setembro de 2026" in " ".join(jobs[1]["date_notes"])
     assert professional_months(jobs) == professional_months(jobs[:1])
     assert not any(e["organization"] == "Empresa Frutal" for e in jobs)

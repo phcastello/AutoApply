@@ -30,6 +30,7 @@ class FakeRawJob:
     platform: str = "linkedin"
     external_id: str = "job-001"
     posted_at: str | None = None
+    work_mode: str | None = None
 
 
 def _make_config(
@@ -50,6 +51,12 @@ def _make_config(
     cfg.search_criteria.salary_min = salary_min
     cfg.search_criteria.keywords_include = keywords_include or []
     cfg.search_criteria.keywords_exclude = keywords_exclude or []
+    from config.settings import MobilityPreferences
+
+    cfg.search_criteria.work_modes = ["remote"] if remote_only else []
+    cfg.search_criteria.mobility = MobilityPreferences(
+        direct_locations=locations or ["San Francisco"], domestic_relocation=False
+    )
     cfg.bot.min_match_score = min_match_score
     cfg.company_blacklist = company_blacklist or []
     return cfg
@@ -256,7 +263,7 @@ class TestScoreJobLocation:
         assert result.score >= 20
 
     def test_remote_only_rejects_onsite(self):
-        job = FakeRawJob(location="New York, NY")
+        job = FakeRawJob(location="New York, NY", work_mode="on-site")
         cfg = _make_config(remote_only=True)
         result = score_job(job, cfg)
         # Title=35 + Salary=20 + Location=0 = 55
@@ -293,7 +300,9 @@ class TestScoreJobKeywords:
 
     def test_keywords_max_at_25(self):
         job = FakeRawJob(description="Python Flask React PostgreSQL Docker Kubernetes")
-        cfg = _make_config(keywords_include=["Python", "Flask", "React", "PostgreSQL", "Docker", "Kubernetes"])
+        cfg = _make_config(
+            keywords_include=["Python", "Flask", "React", "PostgreSQL", "Docker", "Kubernetes"]
+        )
         result = score_job(job, cfg)
         # 6 keywords * 5 = 30, but capped at 25
         # Title=35 + Salary=20 + Location=20 + Keywords=25 = 100

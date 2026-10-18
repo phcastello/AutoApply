@@ -17,6 +17,7 @@ from config.settings import (
     get_data_dir,
     is_first_run,
     load_config,
+    merge_search_criteria,
     remove_credential,
     save_config,
 )
@@ -56,7 +57,10 @@ def update_config():
             merged = existing.model_dump()
             for key, value in data.items():
                 if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-                    merged[key].update(value)
+                    if key == "search_criteria":
+                        merged[key] = merge_search_criteria(merged[key], value)
+                    else:
+                        merged[key].update(value)
                 else:
                     merged[key] = value
             config = AppConfig(**merged)
@@ -70,6 +74,15 @@ def update_config():
         return jsonify(error=str(e)), 400
     try:
         save_config(config)
+        import app_state
+        from core.assisted_matching import evaluate
+        from core.assisted_workflow import list_jobs, save_payload
+
+        for job in list_jobs(app_state.db):
+            job["match"] = evaluate(
+                config.profile, config.search_criteria, job, config.company_blacklist
+            )
+            save_payload(app_state.db, job)
     except Exception:
         return jsonify(
             error="Não foi possível salvar a configuração ou guardar a chave no cofre do sistema."

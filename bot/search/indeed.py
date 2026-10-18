@@ -41,29 +41,25 @@ class IndeedSearcher(BaseSearcher):
         found = 0
 
         for title in criteria.job_titles:
-            for location in criteria.locations:
+            from core.location_rules import search_locations
+
+            for location in search_locations(criteria):
                 if found >= max_results:
                     return
 
                 try:
-                    yield from self._search_page(
-                        page, title, location, max_results - found
-                    )
+                    yield from self._search_page(page, title, location, max_results - found)
                 except Exception as e:
                     logger.error(
                         "Indeed search failed for '%s' in '%s': %s",
-                        title, location, e,
+                        title,
+                        location,
+                        e,
                     )
 
-    def _search_page(
-        self, page, title: str, location: str, remaining: int
-    ) -> Iterator[RawJob]:
+    def _search_page(self, page, title: str, location: str, remaining: int) -> Iterator[RawJob]:
         """Search a single title+location combination on Indeed."""
-        url = (
-            f"{INDEED_SEARCH_URL}"
-            f"?q={quote_plus(title)}"
-            f"&l={quote_plus(location)}"
-        )
+        url = f"{INDEED_SEARCH_URL}?q={quote_plus(title)}&l={quote_plus(location)}"
 
         logger.info("Indeed: searching '%s' in '%s'", title, location)
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -74,9 +70,7 @@ class IndeedSearcher(BaseSearcher):
 
         while found < remaining:
             job_cards = page.query_selector_all(
-                ".job_seen_beacon, "
-                ".jobsearch-ResultsList .result, "
-                "[data-jk]"
+                ".job_seen_beacon, .jobsearch-ResultsList .result, [data-jk]"
             )
 
             if not job_cards:
@@ -98,8 +92,7 @@ class IndeedSearcher(BaseSearcher):
             # Try next page
             page_num += 1
             next_link = page.query_selector(
-                "a[data-testid='pagination-page-next'], "
-                ".np[aria-label='Next Page']"
+                "a[data-testid='pagination-page-next'], .np[aria-label='Next Page']"
             )
             if not next_link:
                 break
@@ -110,11 +103,7 @@ class IndeedSearcher(BaseSearcher):
     def _extract_job(self, page, card) -> RawJob | None:
         """Extract job details from an Indeed job card."""
         # Click card to load details
-        title_link = card.query_selector(
-            "h2.jobTitle a, "
-            ".jobTitle > a, "
-            "a[data-jk]"
-        )
+        title_link = card.query_selector("h2.jobTitle a, .jobTitle > a, a[data-jk]")
 
         if not title_link:
             return None
@@ -132,17 +121,13 @@ class IndeedSearcher(BaseSearcher):
 
         # Company name
         company_el = card.query_selector(
-            "[data-testid='company-name'], "
-            ".companyName, "
-            ".company_location .companyName"
+            "[data-testid='company-name'], .companyName, .company_location .companyName"
         )
         company = company_el.inner_text().strip() if company_el else "Unknown"
 
         # Location
         location_el = card.query_selector(
-            "[data-testid='text-location'], "
-            ".companyLocation, "
-            ".company_location .companyLocation"
+            "[data-testid='text-location'], .companyLocation, .company_location .companyLocation"
         )
         location_text = location_el.inner_text().strip() if location_el else ""
 
@@ -158,9 +143,7 @@ class IndeedSearcher(BaseSearcher):
 
         # Description from detail panel
         desc_el = page.query_selector(
-            "#jobDescriptionText, "
-            ".jobsearch-jobDescriptionText, "
-            "[id='jobDescriptionText']"
+            "#jobDescriptionText, .jobsearch-jobDescriptionText, [id='jobDescriptionText']"
         )
         description = desc_el.inner_text().strip() if desc_el else ""
 

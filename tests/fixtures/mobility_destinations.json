@@ -1,0 +1,23 @@
+[
+  {"country":"Países Baixos","priority":"S","location":"Eindhoven, Netherlands"},
+  {"country":"Irlanda","priority":"S","location":"Cork, Ireland"},
+  {"country":"Alemanha","priority":"S","location":"Munich, Germany"},
+  {"country":"Japão","priority":"S","location":"Osaka, Japan"},
+  {"country":"Suíça","priority":"A","location":"Basel, Switzerland"},
+  {"country":"Noruega","priority":"A","location":"Bergen, Norway"},
+  {"country":"Coreia do Sul","priority":"A","location":"Busan, South Korea"},
+  {"country":"Áustria","priority":"A","location":"Graz, Austria"},
+  {"country":"Singapura","priority":"A","location":"Singapore"},
+  {"country":"Luxemburgo","priority":"A","location":"Esch-sur-Alzette, Luxembourg"},
+  {"country":"Bélgica","priority":"A","location":"Ghent, Belgium"},
+  {"country":"Reino Unido","priority":"B","location":"Manchester, United Kingdom"},
+  {"country":"Austrália","priority":"B","location":"Melbourne, Australia"},
+  {"country":"Canadá","priority":"B","location":"Vancouver, Canada"},
+  {"country":"Estados Unidos","priority":"B","location":"Austin, TX, United States"},
+  {"country":"Dinamarca","priority":"B","location":"Aarhus, Denmark"},
+  {"country":"Suécia","priority":"B","location":"Gothenburg, Sweden"},
+  {"country":"Finlândia","priority":"B","location":"Tampere, Finland"},
+  {"country":"Nova Zelândia","priority":"C","location":"Christchurch, New Zealand"},
+  {"country":"Portugal","priority":"D","location":"Porto, Portugal"},
+  {"country":"Itália","priority":"D","location":"Bologna, Italy"}
+]

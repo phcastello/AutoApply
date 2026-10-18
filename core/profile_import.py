@@ -109,6 +109,12 @@ def labelled(line):
     return (normalized(match[1]), match[2].strip()) if match else ("", plain(line))
 
 
+def client_label(line):
+    """Keep the client's spelling; labels are structural, not date observations."""
+    match = re.match(r"^atua[çc][ãa]o\s+(?:com|para)\s+(.+?):\s*(.*)$", plain(line), re.I)
+    return (match[1].strip(), match[2].strip()) if match else None
+
+
 def contains_contact_fields(text):
     labels = {
         "nome",
@@ -133,7 +139,7 @@ def pairs(lines):
 def note_like(text):
     return bool(
         re.search(
-            r"\b(nao (?:afirmar|apresentar|atribuir|identificar|divulgar|declarar|descrever|inventar)|sem (?:alegar|afirmar)|nao corresponde|nao deve|nao se converteu|nao cofundador|nao confirmacao|confidencial|restric|observac|nota de apresentacao|limite de escopo)\b",
+            r"\b(nao (?:afirmar|apresentar|atribuir|identificar|divulgar|declarar|descrever|inventar)|sem (?:alegar|afirmar)|nao corresponde|nao deve|nao cofundador|nao confirmacao|confidencial|restric|observac|nota de apresentacao|limite de escopo)\b",
             normalized(text),
         )
     )
@@ -220,12 +226,17 @@ def document_sections(text):
             sections.append(current)
         if heading and len(heading[1]) >= 3:
             new = Block(title)
-            if len(heading[1]) >= 4 and block:
+            if block and (
+                len(heading[1]) >= 4 or re.match(r"atua[çc][ãa]o\s+(?:com|para)\s+", title, re.I)
+            ):
                 block.children.append(new)
                 child = new
             else:
                 current["blocks"].append(new)
                 block, child = new, None
+        elif block and current["category"] == "experience" and client_label(line):
+            block.lines.append(line)
+            child = None
         elif child:
             child.lines.append(line)
         elif block:
@@ -353,7 +364,6 @@ def fact_from_block(cat, block):
         if k
         in ("periodo", "inicio", "entrada na sociedade", "inicio da atuacao no projeto do cliente")
         or "previsao" in k
-        or (k.startswith("atuacao com") and re.search(r"\b20\d{2}\b", v))
     ]
     if "periodo" in values and not start:
         dates = re.split(r"\s+(?:até|a|to)\s+|\s+[—–]\s+", values["periodo"], maxsplit=1)
@@ -392,6 +402,53 @@ def fact_from_block(cat, block):
         experience_type=values.get("vinculo", values.get("tipo", "")).split(";")[0].rstrip("."),
         source_excerpt=excerpt,
     )
+
+
+def client_activities(block, fact):
+    activities = []
+    for line in block.lines:
+        label = client_label(line)
+        if not label:
+            continue
+        title, value = label
+        # Inline named fields commonly start with a date sentence, followed by duties.
+        sentences = re.split(r"(?<=\.)\s+", value, maxsplit=1)
+        dated = bool(re.search(r"\b(?:19|20)\d{2}\b", sentences[0])) and bool(
+            re.match(
+                r"(?:inici|desde|a partir|aproxim|em |no |na |come[cç]o|[0-9])", sentences[0], re.I
+            )
+        )
+        start = sentences[0].rstrip(".") if dated else ""
+        description = sentences[1] if dated and len(sentences) > 1 else ("" if dated else value)
+        public = split_public(description)
+        if not public or note_like(public):
+            public = fact.text
+        activities.append(
+            Activity(
+                title=title,
+                text=public.rstrip("."),
+                start_date=parse_date(start) if start else "",
+                end_date=fact.end_date if fact.end_date == "presente" else "",
+                technologies=fact.technologies,
+                source_excerpt=line,
+            )
+        )
+    values = {k: v for k, v, _ in pairs(block.lines)}
+    client = next(
+        (v for k, v in values.items() if k.startswith("cliente com atuacao autorizada")), ""
+    )
+    if client and not activities:
+        activities.append(
+            Activity(
+                title=client.rstrip("."),
+                text=fact.text,
+                start_date=parse_date(values.get("inicio da atuacao no projeto do cliente", "")),
+                end_date=fact.end_date,
+                technologies=fact.technologies,
+                source_excerpt="\n".join(block.lines).strip(),
+            )
+        )
+    return activities
 
 
 def structured_profile(text):
@@ -471,13 +528,24 @@ def structured_profile(text):
             if not any(line.strip() for line in block.lines) and not block.children:
                 continue
             fact = fact_from_block(cat, block)
+            if cat == "experience":
+                fact.activities.extend(client_activities(block, fact))
             draft.constraints.extend(constraints_for(block, fact.organization or fact.title))
             for child in block.children:
                 child_fact = fact_from_block("project", child)
+                # Individual authorship and noncommercial status are public evidence too.
+                qualifiers = [
+                    split_public(v)
+                    for k, v, _ in pairs(child.lines)
+                    if k in ("papel", "contexto comercial")
+                ]
+                child_fact.text = ". ".join(
+                    [child_fact.text, *[q.rstrip(".") for q in qualifiers if q]]
+                )
                 title = plain(child.title)
                 if fact.organization and title.startswith(fact.organization):
                     title = re.sub(r"^[^—–]+[—–]\s*", "", title)
-                title = re.split(r"\s+para prospecção\b", title, flags=re.I)[0]
+                title = re.sub(r"^atua[çc][ãa]o\s+(?:com|para)\s+", "", title, flags=re.I)
                 fact.activities.append(
                     Activity(
                         title=title,
@@ -485,7 +553,7 @@ def structured_profile(text):
                         start_date=child_fact.start_date,
                         end_date=child_fact.end_date,
                         date_notes=child_fact.date_notes,
-                        technologies=child_fact.technologies,
+                        technologies=child_fact.technologies or fact.technologies,
                         source_excerpt=child_fact.source_excerpt,
                     )
                 )

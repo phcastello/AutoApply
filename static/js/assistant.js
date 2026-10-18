@@ -3,6 +3,8 @@ import { aiFields, readAI, bindAI, testAI, credentialStatus } from './ai-config.
 import { state } from './state.js';
 import { updateAIIndicators } from './ai-status.js';
 import { openImportReview } from './import-review.js';
+import { activityEditor, collectActivities, changeActivity } from './activities.js';
+import { loadMobility, readMobility, mobilitySummary, bindMobility, geographyLabels, compareGeography } from './mobility.js';
 
 let config, entries = [], jobs = [], busy = false;
 let previewUrl;
@@ -18,14 +20,14 @@ const split = value => value.split(',').map(x=>x.trim()).filter(Boolean);
 const pageInfo = {profile:['Meu perfil','Cadastre ou importe sua trajetória e confirme o que poderá entrar nos currículos.'], preferences:['Preferências de vagas','Defina onde e como aceita trabalhar. Campos opcionais vazios não restringem a busca.'], jobs:['Vagas e candidaturas','Busque oportunidades nas empresas escolhidas e prepare seu currículo antes de abrir a vaga.'], settings:['Configurações','Configure e teste a IA opcionalmente. O teste funciona mesmo com o perfil vazio.']};
 const markDirty = page => {dirty.add(page);$('assistant-save-status').textContent='Alterações pendentes. Elas são mantidas ao navegar entre as quatro áreas.';};
 const basicPrefs = preferences.filter(f=>['job_titles','keywords_include','keywords_exclude','experience_levels','max_results'].includes(f[0]));
-const extraPrefs = preferences.filter(f=>!['job_titles','keywords_include','keywords_exclude','experience_levels','max_results','locations','work_modes','remote_only','greenhouse_boards','lever_boards'].includes(f[0]));
+const extraPrefs = preferences.filter(f=>!['job_titles','keywords_include','keywords_exclude','experience_levels','max_results','locations','work_modes','remote_only','countries','willing_to_relocate','salary_min','greenhouse_boards','lever_boards'].includes(f[0]));
 const boardPrefs = preferences.filter(f=>['greenhouse_boards','lever_boards'].includes(f[0]));
 function factFields(e) {
   const common=fields.filter(f=>['category','text'].includes(f[0]));
   const keys={experience:['organization','title','start_date','end_date','location','experience_type','technologies'],education:['organization','title','start_date','end_date','location'],project:['title','technologies','url','start_date','end_date'],research:['organization','title','start_date','end_date','url'],skill:['title','technologies','proficiency'],language:['title','proficiency'],certification:['organization','title','end_date','url'],other:['title','url']}[e.category]||['title'];
   return [common[0],...keys.map(k=>fields.find(f=>f[0]===k)).map(f=>{
     let label=f[1],type=f[2];
-    if(f[0]==='organization')label=e.category==='experience'?'Empresa':'Instituição';
+    if(f[0]==='organization')label=e.category==='experience'?'Empresa do vínculo contratual':'Instituição';
     if(f[0]==='title')label=({experience:'Cargo',education:'Curso / formação',project:'Nome do projeto',language:'Idioma',skill:'Competência'})[e.category]||'Título';
     if(['start_date','end_date'].includes(f[0]))type=/^\d{4}-\d{2}$/.test(e[f[0]]||'')||!e[f[0]]?'month':undefined;
     return [f[0],label,type];
@@ -53,10 +55,11 @@ function read(prefix, specs) {
   return data;
 }
 function collectEntries() {
+  collectActivities($('assistant-facts'),entries);
   entries = entries.map((e,i)=>({...e,...read(`fact-${i}`,factFields(e)),confirmed:$(`fact-${i}-confirmed`).checked}));
 }
 function showFacts() {
-  $('assistant-facts').innerHTML = entries.map((e,i)=>`<details class="assistant-fact" ${e.confirmed||e.import_key?'':'open'}><summary>${esc(categories[e.category]||'Informação')} · ${esc(e.title||e.organization||`Informação ${i+1}`)} · ${e.confirmed?'Confirmada':'Precisa de revisão'}</summary><p class="text-dim">Origem: ${esc(e.source||'manual')}</p><div class="assistant-grid">${factFields(e).map(f=>field(`fact-${i}`,f,e[f[0]])).join('')}</div>${(e.date_notes||[]).length?'<p class="text-dim">'+esc(e.date_notes.join(' · '))+'</p>':''}${(e.activities||[]).map(a=>'<details><summary>Atividade no vínculo: '+esc(a.title)+'</summary><p>'+esc(a.text)+'</p><p>'+esc([a.start_date,a.end_date].filter(Boolean).join(' — '))+'</p></details>').join('')}${e.proficiency_basis?'<p>Proficiência: '+esc(e.proficiency_basis)+'</p>':''}<label><input id="fact-${i}-confirmed" type="checkbox" ${e.confirmed?'checked':''}> Revisei e confirmo esta informação</label> <button class="btn btn-ghost" data-remove-fact="${i}">Excluir rascunho</button></details>`).join('') || '<p>Nenhuma informação adicionada.</p>';
+  $('assistant-facts').innerHTML = entries.map((e,i)=>`<details class="assistant-fact" ${e.confirmed||e.import_key?'':'open'}><summary>${esc(categories[e.category]||'Informação')} · ${e.organization?esc(e.organization)+' | ':''}${esc(e.title||e.organization||`Informação ${i+1}`)} · ${e.confirmed?'Confirmada':'Precisa de revisão'}${e.activities?.length?' | '+esc(e.activities.map(a=>a.title).join(', ')):''}</summary><p class="text-dim">Origem: ${esc(e.source||'manual')}</p><div class="assistant-grid">${factFields(e).map(f=>field(`fact-${i}`,f,e[f[0]])).join('')}</div>${(e.date_notes||[]).length?'<p class="text-dim">'+esc(e.date_notes.join(' · '))+'</p>':''}${e.category==='experience'?activityEditor(e.activities||[],i,e.organization):''}${e.proficiency_basis?'<p>Proficiência: '+esc(e.proficiency_basis)+'</p>':''}<label><input id="fact-${i}-confirmed" type="checkbox" ${e.confirmed?'checked':''}> Revisei e confirmo esta informação</label> <button class="btn btn-ghost" data-remove-fact="${i}">Excluir rascunho</button></details>`).join('') || '<p>Nenhuma informação adicionada.</p>';
 }
 function showImportMetadata() {
   $('assistant-contact-notes').textContent=contactNotes.join('\n');
@@ -81,7 +84,7 @@ async function save() {
     data.profile={...read('contact',contacts),career_entries:entries,generation_constraints:generationConstraints,contact_notes:contactNotes,location_is_reference:$('contact-location-reference').checked};
   }
   if(dirty.has('preferences')){
-    data.search_criteria={...read('pref',[...basicPrefs,...extraPrefs]),locations:cities,work_modes:[...document.querySelectorAll('#assistant-work-modes input:checked')].map(e=>e.value),remote_only:false};
+    data.search_criteria={...read('pref',[...basicPrefs,...extraPrefs]),mobility:readMobility(cities),work_modes:[...document.querySelectorAll('#assistant-work-modes input:checked')].map(e=>e.value),remote_only:false};
     data.company_blacklist=split($('pref-company_blacklist').value);
   }
   if(dirty.has('jobs')){
@@ -112,8 +115,7 @@ async function task(url, data={}) {
 }
 function showCities() {
   $('assistant-cities').innerHTML=cities.map((c,i)=>`<span class="assistant-chip">${esc(c)}<button type="button" data-remove-city="${i}" aria-label="Remover ${esc(c)}">×</button></span>`).join('');
-  const modes=[...document.querySelectorAll('#assistant-work-modes input:checked')].map(e=>({remote:'remoto',hybrid:'híbrido','on-site':'presencial'})[e.value]);
-  $('assistant-location-summary').textContent=`Aceita ${modes.join(', ')||'qualquer modalidade (não definida)'}. Comparecimento presencial/híbrido: ${cities.join('; ')||'cidades não definidas, exigem revisão'}. Remoto depende da permissão de contratação na sua residência.`;
+  $('assistant-location-summary').textContent=mobilitySummary(cities);
 }
 function showSources() {
   $('assistant-sources').innerHTML=boardPrefs.flatMap(([key])=>split($(`pref-${key}`).value).map(board=>`<p>${esc(sourceNames[`${key}:${board}`]||board)} · ${key.startsWith('greenhouse')?'Greenhouse':'Lever'}</p>`)).join('')||'<p>Nenhuma empresa configurada. Adicione uma página de carreiras para buscar.</p>';
@@ -121,9 +123,10 @@ function showSources() {
 function safeUrl(url) { try {const u=new URL(url);return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';} catch {return '';} }
 function renderJobs() {
   const query=$('assistant-filter').value.toLowerCase(), min=Number($('assistant-min-score').value), status=$('assistant-status-filter').value;
-  const shown=jobs.filter(j=>j.match.score>=min&&(!status||j.status===status)&&`${j.company} ${j.title}`.toLowerCase().includes(query)&&j.availability!=='closed').sort((a,b)=>({eligible:0,review:1,incompatible:2}[a.match.eligibility?.state||'review']-{eligible:0,review:1,incompatible:2}[b.match.eligibility?.state||'review'])||b.match.score-a.match.score);
+  const geography=$('assistant-geography-filter').value,sort=$('assistant-sort').value;
+  const shown=jobs.filter(j=>j.match.score>=min&&(!status||j.status===status)&&(!geography||j.match.eligibility.category===geography)&&`${j.company} ${j.title}`.toLowerCase().includes(query)&&j.availability!=='closed').sort((a,b)=>compareGeography(a,b,sort));
   $('assistant-results-summary').textContent=`${shown.length} vagas exibidas de ${jobs.length} registros no histórico. Ordenadas por compatibilidade. Vagas verificadas como encerradas ficam ocultas.`;
-  $('assistant-jobs').innerHTML=shown.map((j,i)=>`${i===0||shown[i-1].match.eligibility?.state!==j.match.eligibility?.state?`<h2>${({eligible:'Elegibilidade confirmada por local',review:'Revisar local de trabalho',incompatible:'Fora das regras atuais - hist&oacute;rico'})[j.match.eligibility?.state||'review']}</h2>`:''}<article class="assistant-job" data-job-id="${j.id}"><h3>${esc(j.title)}</h3><p>${esc((j.match.eligibility?.reasons||[]).join(" "))}</p><p><strong>${esc(j.company)}</strong> · ${esc(j.location||'Localização não informada')} · ${esc(j.work_mode||'Modalidade não informada')}</p><p>Compatibilidade: <strong>${j.match.score}/100</strong> · Fonte: ${esc(j.source)} · Publicação: ${esc(j.published_at?.slice(0,10)||'não informada')} · Descoberta: ${esc(j.discovered_at.slice(0,10))}</p><p>${esc(j.description.slice(0,300))}…</p><p>${j.url_status==='verified'?'✓ Link verificado':'⚠ Link não verificado'}: ${esc(j.url_message)}</p><div class="flex gap-sm" style="flex-wrap:wrap"><a class="btn btn-primary" target="_blank" rel="noopener noreferrer" href="${esc(safeUrl(j.apply_url))}">Abrir vaga</a><button class="btn btn-ghost" data-verify="${j.id}">Verificar link</button><button class="btn btn-success" data-generate="${j.id}">Gerar currículo</button><button class="btn btn-ghost" data-regenerate="${j.id}">Gerar nova versão</button><label>Estado da candidatura <select data-job-status="${j.id}">${Object.entries(statuses).map(([k,v])=>`<option value="${k}" ${j.status===k?'selected':''}>${v}</option>`).join('')}</select></label></div><details><summary>Explicação do compatibilidade e requisitos</summary><p>${esc(j.match.explanation)}</p><p>${esc(j.match.recommendation)}</p>${['matches','gaps','blockers','unknowns'].map((k,i)=>`<strong>${['Correspondências','Lacunas','Possíveis eliminatórios','Conferência manual'][i]}</strong><ul>${j.match[k].map(x=>`<li>${esc(x.replace(/^Evid[^ ]* [^:]+: /,"Perfil confirmado: "))}</li>`).join('')||'<li>Nenhum item identificado</li>'}</ul>`).join('')}<strong>Requisitos obrigatórios identificados</strong><pre>${esc(j.required.join('\n')||'Sem seção explícita identificada; confira a descrição')}</pre><strong>Diferenciais identificados</strong><pre>${esc(j.preferred.join('\n')||'Não identificados')}</pre></details><details><summary>Descrição completa</summary><pre>${esc(j.description)}</pre></details>${j.resumes.length?`<h4>Currículos por versão</h4><p class="text-dim">Textos preservam o idioma das informações confirmadas; a preferência altera os títulos das seções. Revise antes de enviar.</p>`+j.resumes.map(r=>`<p>Versão ${r.id} · ${esc(r.created_at)} <button class="btn btn-ghost" data-download="${r.id}" data-format="pdf">Baixar PDF</button> <button class="btn btn-ghost" data-preview="${r.id}">Visualizar PDF</button> <button class="btn btn-ghost" data-download="${r.id}" data-format="docx">Baixar DOCX</button> <button class="btn btn-ghost" data-download="${r.id}" data-format="provenance">Fontes das afirmações</button></p>`).join(''):''}</article>`).join('')||'<p>Nenhum resultado com estes filtros. Adicione empresas nas fontes, amplie os cargos ou reduza a pontuação mínima. Nenhuma vaga será fabricada.</p>';
+  $('assistant-jobs').innerHTML=shown.map((j,i)=>`<article class="assistant-job" data-job-id="${j.id}" data-geography="${j.match.eligibility.category}"><p><strong class="geographic-badge geographic-${j.match.eligibility.category}">${esc(geographyLabels[j.match.eligibility.category])}</strong> ${j.match.eligibility.country_tier?`Tier ${esc(j.match.eligibility.country_tier)}`:""}</p><h3>${esc(j.title)}</h3><p>${esc((j.match.eligibility?.reasons||[]).join(" "))}</p><p><strong>${esc(j.company)}</strong> · ${esc(j.location||'Localização não informada')} · ${esc(j.work_mode||'Modalidade não informada')}</p><p>Compatibilidade profissional: <strong>${j.match.score}/100</strong> · Fonte: ${esc(j.source)} · Publicação: ${esc(j.published_at?.slice(0,10)||'não informada')} · Descoberta: ${esc(j.discovered_at.slice(0,10))}</p><p>${esc(j.description.slice(0,300))}…</p><p>${j.url_status==='verified'?'✓ Link verificado':'⚠ Link não verificado'}: ${esc(j.url_message)}</p><div class="flex gap-sm" style="flex-wrap:wrap"><a class="btn btn-primary" target="_blank" rel="noopener noreferrer" href="${esc(safeUrl(j.apply_url))}">Abrir vaga</a><button class="btn btn-ghost" data-verify="${j.id}">Verificar link</button><button class="btn btn-success" data-generate="${j.id}">Gerar currículo</button><button class="btn btn-ghost" data-regenerate="${j.id}">Gerar nova versão</button><label>Estado da candidatura <select data-job-status="${j.id}">${Object.entries(statuses).map(([k,v])=>`<option value="${k}" ${j.status===k?'selected':''}>${v}</option>`).join('')}</select></label></div><details><summary>Mobilidade, visto e remuneração</summary><p>${esc(j.match.eligibility.immigration.message)}</p><p>${esc(j.match.eligibility.financial.message)}</p><ul>${j.match.eligibility.pending.map(p=>`<li>${esc(p.message)}</li>`).join('')}</ul></details><details><summary>Explicação do compatibilidade e requisitos</summary><p>${esc(j.match.explanation)}</p><p>${esc(j.match.recommendation)}</p>${['matches','gaps','blockers','unknowns'].map((k,i)=>`<strong>${['Correspondências','Lacunas','Possíveis eliminatórios','Conferência manual'][i]}</strong><ul>${j.match[k].map(x=>`<li>${esc(x.replace(/^Evid[^ ]* [^:]+: /,"Perfil confirmado: "))}</li>`).join('')||'<li>Nenhum item identificado</li>'}</ul>`).join('')}<strong>Requisitos obrigatórios identificados</strong><pre>${esc(j.required.join('\n')||'Sem seção explícita identificada; confira a descrição')}</pre><strong>Diferenciais identificados</strong><pre>${esc(j.preferred.join('\n')||'Não identificados')}</pre></details><details><summary>Descrição completa</summary><pre>${esc(j.description)}</pre></details>${j.resumes.length?`<h4>Currículos por versão</h4><p class="text-dim">Textos preservam o idioma das informações confirmadas; a preferência altera os títulos das seções. Revise antes de enviar.</p>`+j.resumes.map(r=>`<p>Versão ${r.id} · ${esc(r.created_at)} <button class="btn btn-ghost" data-download="${r.id}" data-format="pdf">Baixar PDF</button> <button class="btn btn-ghost" data-preview="${r.id}">Visualizar PDF</button> <button class="btn btn-ghost" data-download="${r.id}" data-format="docx">Baixar DOCX</button> <button class="btn btn-ghost" data-download="${r.id}" data-format="provenance">Fontes das afirmações</button></p>`).join(''):''}</article>`).join('')||'<p>Nenhum resultado com estes filtros. Adicione empresas nas fontes, amplie os cargos ou reduza a pontuação mínima. Nenhuma vaga será fabricada.</p>';
 }
 async function refresh() {jobs=(await apiFetch('/api/assistant/jobs')).jobs;renderJobs();}
 async function download(id,format,preview=false) {
@@ -147,9 +150,10 @@ export async function loadAssistant(page='profile') {
       $('assistant-preferences').innerHTML=basicPrefs.map(f=>field('pref',f,config.search_criteria[f[0]])).join('')+field('pref',['company_blacklist','Empresas bloqueadas','list'],config.company_blacklist);
       $('assistant-extra-preferences').innerHTML=extraPrefs.map(f=>field('pref',f,config.search_criteria[f[0]])).join('');
       $('assistant-boards').innerHTML=boardPrefs.map(f=>field('pref',f,config.search_criteria[f[0]])).join('');
-      cities=[...config.search_criteria.locations];
+      cities=[...config.search_criteria.mobility.direct_locations];
+      loadMobility(config.search_criteria,config.profile);
       sourceNames={...(config.search_criteria.source_names||{})};
-      document.querySelectorAll('#assistant-work-modes input').forEach(el=>el.checked=config.search_criteria.remote_only?el.value==='remote':config.search_criteria.work_modes.includes(el.value));
+      document.querySelectorAll('#assistant-work-modes input').forEach(el=>el.checked=config.search_criteria.remote_only?el.value==='remote':(!config.search_criteria.work_modes.length||config.search_criteria.work_modes.includes(el.value))&&(el.value!=='remote'||config.search_criteria.mobility.remote_enabled));
       $('assistant-ai').innerHTML=aiFields(config.llm,'ai');
       $('assistant-key-status').textContent=credentialStatus(config.llm);
       bindAI('ai',text=>{$('assistant-key-status').textContent=text;$('assistant-test-status').textContent='Configuração alterada. Teste novamente.';markDirty('settings');});
@@ -163,10 +167,12 @@ export async function loadAssistant(page='profile') {
   } catch(e) {message(e.message,true);}
 }
 function initEvents() {
+  bindMobility(()=>{markDirty('preferences');showCities();});
   $('screen-assistant').addEventListener('input',e=>{
     if(e.target.id==='assistant-filter'||e.target.id==='assistant-status-filter')return;
     const page=e.target.closest('[data-assistant-page]')?.dataset.assistantPage;
     if(page)markDirty(page);
+    if(e.target.closest('#assistant-facts')&&e.target.matches('[data-activity-field]'))$(`fact-${e.target.dataset.index}-confirmed`).checked=false;
   });
   $('screen-assistant').addEventListener('change',e=>{
     if(e.target.closest('#assistant-work-modes'))showCities();
@@ -229,8 +235,8 @@ function initEvents() {
     state.aiAvailable=!!r.llm?.available;updateAIIndicators();
     $('assistant-key-status').textContent=credentialStatus(r.llm);$('assistant-test-status').textContent='Chave removida do cofre. Variáveis de ambiente são gerenciadas fora do aplicativo.';
   });
-  ['assistant-filter','assistant-min-score','assistant-status-filter'].forEach(id=>$(id).oninput=renderJobs);
-  $('assistant-facts').onclick=e=>{const b=e.target.closest('[data-remove-fact]');if(b){collectEntries();entries.splice(Number(b.dataset.removeFact),1);showFacts();markDirty('profile');}};
+  ['assistant-filter','assistant-min-score','assistant-status-filter','assistant-geography-filter','assistant-sort'].forEach(id=>$(id).oninput=renderJobs);
+  $('assistant-facts').onclick=e=>{if(e.target.closest('[data-add-activity], [data-remove-activity]')){collectEntries();const index=changeActivity(e.target,entries);entries[index].confirmed=false;showFacts();$('assistant-facts').children[index].open=true;markDirty('profile');return;}const b=e.target.closest('[data-remove-fact]');if(b){collectEntries();entries.splice(Number(b.dataset.removeFact),1);showFacts();markDirty('profile');}};
   $('assistant-import').onchange=()=>action(async()=>{
     const file=$('assistant-import').files[0];if(!file)return;
     collectEntries();const mode=$('assistant-import-mode').value;
@@ -245,6 +251,7 @@ function initEvents() {
       }
       $('assistant-import-suggestions').textContent='';
       openImportReview(result,{currentEntries:entries,currentContacts:read('contact',contacts),onApply:review=>{
+        const updated=new Map((review.updates||[]).map(e=>[e.id,e]));entries=entries.map(e=>updated.get(e.id)||e);
         const replaced=new Set(review.replace_ids||[]);entries=entries.filter(e=>!replaced.has(e.id));
         const keys=new Set(entries.map(e=>e.import_key||e.id));
         entries.push(...review.entries.filter(e=>!keys.has(e.import_key||e.id)));

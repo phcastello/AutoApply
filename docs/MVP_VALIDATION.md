@@ -1,5 +1,17 @@
 # Implementação e validação do MVP
 
+## Mobilidade profissional — atualização de 18/10/2026
+
+A política geográfica foi centralizada em `core/location_rules.py`, compartilhada por matching, descoberta assistida, buscas históricas LinkedIn/Indeed, ranking, histórico e preparação de currículo. O novo modelo separa localidades diretamente aceitas, países/tier para realocação, remoto, disponibilidade futura, autorização de trabalho declarada e condições financeiras. Os valores pessoais iniciais ficam no JSON privado de configuração; novos usuários não herdam países ou prioridades. Cidades existentes são migradas sem perda dos campos legados.
+
+O fluxo assistido apresenta cinco categorias geográficas e ordenação por compatibilidade profissional, país ou necessidade de mudança. Vagas com mudança não são descartadas antes do ranking por cidade ausente, salário não informado, visto desconhecido, idioma não informado ou início a combinar. A pontuação profissional não é reduzida pelas pendências geográficas/financeiras/migratórias. Origem da empresa não comprova permissão de trabalho remoto; residência obrigatória em país selecionado é realocação condicional. Autorização de trabalho só pode ser declarada separadamente pelo candidato, e não decorre de interesse no destino.
+
+A seleção de regressão foi executada com fixtures fictícias, abrangendo os 21 destinos, localidades fora das capitais, cidades desconhecidas, países não selecionados, aliases, estados ambíguos, remoto com restrições e exclusões, dados financeiros ausentes/incomparáveis, patrocínio desconhecido/negado, prioridades, migração de configuração e reavaliação pelas duas APIs. Vagas são limitadas após avaliar e ordenar, mantendo no histórico os registros já encontrados com os mesmos IDs, status e datas. **317 testes passaram**, incluindo 95 casos da política de mobilidade e o novo teste de configuração no navegador. Ruff e `git diff --check` passaram. Capturas e dados de validação permanecem em `.validation/`.
+
+Chromium foi usado em dados isolados para cadastrar/editar/remover destinos, salvar/recarregar preferências, filtrar as cinco categorias, alternar ordenação, mudar prioridade e rever os mesmos registros históricos. Layout desktop e 390 px foram inspecionados. As capturas em `.validation/mobility-visual/` utilizam perfil e vagas fictícios; dados pessoais não foram versionados. O resumo local, os tiers e exemplos de realocação/remoto foram verificados visualmente. Nenhuma candidatura foi enviada; nenhuma opção de envio automático foi ativada, e não houve commit ou push.
+
+Uma falha histórica foi observada ao incluir o módulo completo `test_search_engines.py`: `TestLinkedInApplier.test_upload_resume` chama `_upload_resume`, método ausente também no código-base. O adaptador de envio não foi alterado nesta rodada. A validação focada inclui as classes de busca desse módulo; a suíte completa não é declarada inteiramente verde.
+
 Validação em 9 de outubro de 2026, Windows, Python 3.12. Base original: commit `053071ba1bba5733b522d78c3d645002d817e55a` do AutoApply 2.4.1. Implementação na branch `mvp-assisted` do fork `phcastello/AutoApply`. A publicação inclui código, documentação e fixtures explicitamente fictícias; dados privados e artefatos locais de validação ficam ignorados pelo Git.
 
 ## Diagnóstico confirmado no código

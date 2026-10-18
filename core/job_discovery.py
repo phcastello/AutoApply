@@ -149,8 +149,27 @@ def normalize_job(source, board, item, company=None):
         k in dict(parse_qsl(u.query)) for k in ("gh_jid", "job_id")
     ):
         raise ValueError("URL genérica de carreiras")
-    if not mode and re.search(r"\b(remote|remoto)\b", location, re.I):
-        mode = "remote"
+    if mode not in ("on-site", "onsite", "hybrid", "remote"):
+        mode = None
+    if not mode:
+        mode = {
+            "on-site": "on-site",
+            "onsite": "on-site",
+            "hybrid": "hybrid",
+            "remote": "remote",
+        }.get(item.get("workplaceType") or item.get("work_mode"))
+    if not mode:
+        inferred = {
+            value
+            for value, pattern in (
+                ("remote", r"\b(?:remote|remoto)\b"),
+                ("hybrid", r"\b(?:hybrid|híbrido)\b"),
+                ("on-site", r"\b(?:on[- ]site|presencial)\b"),
+            )
+            if re.search(pattern, location, re.I)
+        }
+        if len(inferred) == 1:
+            mode = inferred.pop()
     seniority = next(
         (
             level
@@ -197,6 +216,44 @@ def normalize_job(source, board, item, company=None):
         url_message="Publicada na API; página ainda não verificada",
     )
     job["fingerprint"] = fingerprint(job)
+    # Preserve explicit published restrictions; never substitute headquarters.
+    for key in (
+        "country",
+        "country_code",
+        "attendance_country",
+        "attendance_location",
+        "remote_countries",
+        "remote_excluded_countries",
+        "remote_worldwide",
+        "remote_restrictions",
+        "timezone_restriction",
+        "hiring_restriction",
+        "visa_sponsorship",
+        "sponsorship_available",
+        "required_languages",
+        "start_date",
+    ):
+        if key in item:
+            job[key] = item[key]
+    if isinstance(item.get("salary"), dict):
+        job["salary"] = item["salary"]
+    elif isinstance(item.get("salaryRange"), dict):
+        band = item["salaryRange"]
+        interval = band.get("interval")
+        job["salary"] = dict(
+            min=band.get("min"),
+            max=band.get("max"),
+            currency=band.get("currency"),
+            period={
+                "per-year-salary": "annual",
+                "per-month-salary": "monthly",
+                "per-hour-wage": "hourly",
+            }.get(interval),
+            source_interval=interval,
+        )
+    if item.get("pay_input_ranges"):
+        # Preserve bands without guessing their applicable region or payment period.
+        job["salary_ranges"] = item["pay_input_ranges"]
     return job
 
 

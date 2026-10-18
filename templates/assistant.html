@@ -22,11 +22,24 @@
     </div>
   </div>
   <div data-assistant-page="preferences" hidden>
-    <div class="card"><h2>Onde aceita trabalhar</h2><p>Modalidades e cidades são restrições obrigatórias. Trabalho remoto depende da elegibilidade para sua residência informada no perfil.</p>
+    <div class="card" id="assistant-mobility"><h2>Mobilidade profissional</h2><p>Configure aceitação direta, mudança e trabalho remoto separadamente. Países para realocação não exigem cidades cadastradas.</p>
+      <p id="mobility-current-location" class="assistant-summary"></p>
       <fieldset id="assistant-work-modes"><legend>Modalidades aceitas</legend><label><input type="checkbox" value="on-site"> Presencial</label><label><input type="checkbox" value="hybrid"> Híbrido</label><label><input type="checkbox" value="remote"> Remoto</label></fieldset>
-      <p>Cidades onde aceita comparecer presencialmente ou em regime híbrido:</p>
+      <h3>Localidades diretamente aceitas</h3><p>Onde aceita comparecimento presencial ou híbrido sem condições especiais de mudança. Esta lista não limita os municípios dos países selecionados para realocação.</p>
       <div class="assistant-grid"><label>Cidade<input id="city-name" placeholder="Ex.: São Paulo"></label><label>Estado<input id="city-state" placeholder="Ex.: SP"></label><label>País<input id="city-country" value="Brasil"></label></div>
-      <button class="btn btn-ghost" id="assistant-add-city">Adicionar cidade</button><div id="assistant-cities" class="assistant-chips"></div><p id="assistant-location-summary" class="assistant-summary" aria-live="polite"></p>
+      <button class="btn btn-ghost" id="assistant-add-city">Adicionar localidade</button><div id="assistant-cities" class="assistant-chips"></div>
+      <div class="assistant-grid"><label>Disponibilidade para mudança nacional<select id="mobility-domestic_relocation"><option value="">A confirmar</option><option value="true">Disponível para avaliar ofertas</option><option value="false">Não disponível</option></select></label><label>Disponibilidade para mudança internacional<select id="mobility-international_relocation"><option value="">A confirmar</option><option value="true">Disponível para avaliar ofertas</option><option value="false">Não disponível</option></select></label></div>
+      <h3>Países para realocação</h3><p>Escolha seus próprios destinos e prioridades. Todos os países selecionados continuam no ranking, inclusive os de menor prioridade.</p>
+      <div id="mobility-destinations"></div>
+      <div class="assistant-grid"><label>Novo país de interesse<input id="mobility-new-country" placeholder="Nome do país"></label><label>Prioridade<select id="mobility-new-priority"><option value="">Sem prioridade</option><option>S</option><option>A</option><option>B</option><option>C</option><option>D</option></select></label></div><button type="button" class="btn btn-ghost" id="mobility-add-country">Adicionar país</button>
+      <h3>Condições de realocação e disponibilidade</h3>
+      <label>Condições para avaliar a mudança<textarea id="mobility-relocation_conditions" placeholder="Ex.: remuneração, custo de vida, contrato e apoio à mudança"></textarea></label>
+      <div class="assistant-grid"><label>Disponível a partir de (opcional)<input type="date" id="mobility-available_from"></label><label>Disponibilidade futura e condições de início<textarea id="mobility-availability_notes"></textarea></label></div>
+      <details><summary>Autorização de trabalho e parâmetro financeiro (opcionais)</summary><p>Informe apenas autorizações que você já possui. Destinos desejados e residência não comprovam autorização. Salário ausente ou incomparável gera revisão.</p>
+        <label>Países com autorização de trabalho declarada (separados por vírgula)<input id="mobility-work_authorization_countries"></label>
+        <div class="assistant-grid"><label>Mínimo bruto para avaliar mudança<input type="number" min="0" id="mobility-salary_min"></label><label>Moeda do parâmetro<input id="mobility-salary_currency" placeholder="Ex.: EUR"></label><label>Período<select id="mobility-salary_period"><option value="">Não definido</option><option value="annual">Anual</option><option value="monthly">Mensal</option><option value="hourly">Por hora</option></select></label></div>
+      </details>
+      <h3>Resumo das regras</h3><p id="assistant-location-summary" class="assistant-summary" aria-live="polite"></p>
     </div>
     <div class="card"><h2>Oportunidades desejadas</h2><p>Cargos e palavras incluídas orientam a busca; palavras excluídas e empresas bloqueadas são restrições.</p><div id="assistant-preferences" class="assistant-grid"></div></div>
     <details class="card"><summary>Outras preferências e idioma do currículo</summary><p>Salário, jornada, contratos, horas e idiomas exigem conferência manual quando não há dados comparáveis. Áreas e realocação são contexto, sem filtro automático.</p><div id="assistant-extra-preferences" class="assistant-grid"></div></details>
@@ -46,7 +59,7 @@
     </details>
     <div class="assistant-toolbar"><button class="btn btn-success" id="assistant-search">Salvar e pesquisar vagas reais</button><button class="btn btn-ghost" id="assistant-refresh">Atualizar histórico</button></div>
     <div class="card"><h2>Vagas e candidaturas</h2><p>Compatibilidade mede aderência ao perfil. Não representa chance de contratação ou aprovação em sistemas de seleção.</p>
-      <div class="assistant-grid"><label>Filtrar cargo ou empresa<input id="assistant-filter" type="search"></label><label>Compatibilidade mínima<input id="assistant-min-score" type="number" min="0" max="100" value="0"></label><label>Estado da candidatura<select id="assistant-status-filter"><option value="">Todos</option></select></label></div><p id="assistant-results-summary" role="status"></p><div id="assistant-jobs"></div>
+      <div class="assistant-grid"><label>Filtrar cargo ou empresa<input id="assistant-filter" type="search"></label><label>Compatibilidade profissional mínima<input id="assistant-min-score" type="number" min="0" max="100" value="0"></label><label>Estado da candidatura<select id="assistant-status-filter"><option value="">Todos</option></select></label><label>Preferência geográfica<select id="assistant-geography-filter"><option value="">Todas, incluindo histórico fora das preferências</option><option value="direct">Localidade diretamente aceita</option><option value="remote">Remoto compatível</option><option value="relocation">Oportunidade com realocação</option><option value="review">Necessita revisão</option><option value="outside">Fora das preferências</option></select></label><label>Ordenar resultados<select id="assistant-sort"><option value="recommended">Compatibilidade e prioridade de país</option><option value="professional">Compatibilidade profissional</option><option value="country">Prioridade de país</option><option value="relocation">Necessidade de mudança</option></select></label></div><p id="assistant-results-summary" role="status"></p><div id="assistant-jobs"></div>
     </div>
   </div>
   <button class="btn btn-primary" id="assistant-save">Salvar alterações</button>
@@ -67,6 +80,17 @@
   #screen-assistant {max-width:1120px;margin:auto;padding-bottom:40px}
   #screen-assistant .card {margin:18px 0;padding:24px}
   #screen-assistant summary {cursor:pointer;font-weight:600;padding:5px 0}
+  .mobility-destination {display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:12px 0}
+  .mobility-destination label {display:flex;flex-direction:column;gap:6px;flex:1;min-width:150px}
+  .geographic-badge {display:inline-block;border:1px solid currentColor;border-radius:16px;padding:4px 10px}
+  #assistant-location-summary {white-space:pre-line;line-height:1.65}
+  .geographic-relocation {color:#f2c66d}.geographic-direct {color:#90dca8}.geographic-remote {color:#8fc9ff}.geographic-review {color:#e1caa1}.geographic-outside {color:#e6a1a1}
+  #screen-assistant .activity-editor {margin:18px 0;padding:16px;border:1px solid var(--border,#738095);border-radius:8px}
+  #screen-assistant .activity-editor fieldset {min-width:0;border:1px solid var(--border,#738095);border-radius:8px;padding:14px;margin:14px 0}
+  #screen-assistant .activity-editor .assistant-grid {grid-template-columns:repeat(2,minmax(0,1fr))}
+  #screen-assistant .activity-editor .activity-wide {grid-column:1 / -1}
+  #screen-assistant .activity-editor textarea {min-height:64px}
+  #screen-assistant .activity-editor [data-activity-field=text] {min-height:110px}
   #assistant-message {white-space:pre-wrap;margin:16px 0}
   .assistant-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:18px 0}
   .assistant-grid label,.assistant-toolbar label {display:flex;flex-direction:column;gap:7px}

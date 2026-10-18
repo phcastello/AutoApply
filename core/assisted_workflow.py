@@ -14,8 +14,8 @@ from PyPDF2 import PdfReader
 from config.ai_destination import DEFAULT_MODELS, destination
 from core.assisted_matching import evaluate, select_entries, use_ai_selection
 from core.job_discovery import canonical_url, discover, now, verify_url
+from core.location_rules import geographic_rank
 from core.resume_renderer import render_resume_to_pdf
-from core.work_preferences import outside_preferences
 
 STATES = {
     "saved",
@@ -144,10 +144,13 @@ def search_jobs(db, config):
                 continue
             analysis = evaluate(config.profile, criteria, job, config.company_blacklist)
             # Exclusions are explicit. Unknown metadata is never a rejection.
-            if outside_preferences(analysis) or analysis["eligibility"]["state"] == "incompatible":
+            if any(
+                b in ("Palavra-chave excluída encontrada", "Empresa bloqueada")
+                for b in analysis["blockers"]
+            ):
                 continue
             filtered.append((job, analysis))
-        filtered.sort(key=lambda x: x[1]["score"], reverse=True)
+        filtered.sort(key=lambda x: geographic_rank(x[1]), reverse=True)
         ids = []
         for job, analysis in filtered[: criteria.max_results]:
             ids.append(persist_job(db, job, analysis))
@@ -241,6 +244,19 @@ def build_markdown(profile, entries, language):
             lines.append("- " + _literal(entry["text"]))
             for activity in entry.get("activities", []):
                 lines.append("- " + _literal(activity["title"]) + ": " + _literal(activity["text"]))
+                period = " — ".join(
+                    _literal(activity.get(k, ""))
+                    for k in ("start_date", "end_date")
+                    if activity.get(k)
+                )
+                if period:
+                    lines.append("  " + period)
+                if activity.get("technologies"):
+                    lines.append(
+                        "  "
+                        + ("Tecnologias: " if pt else "Technologies: ")
+                        + ", ".join(_literal(t) for t in activity["technologies"])
+                    )
             if entry.get("technologies"):
                 lines.append(
                     ("Tecnologias: " if pt else "Technologies: ") + ", ".join(entry["technologies"])
@@ -285,7 +301,22 @@ def generate_resume(db, config, job, data_dir, use_ai=False, force=False):
     for entry in config.profile.career_entries:
         if not entry.confirmed:
             continue
-        if note_like(entry.text) or ("**Nome" in entry.text and "**Telefone" in entry.text):
+        public_values = [
+            entry.text,
+            entry.title,
+            entry.organization,
+            entry.start_date,
+            entry.end_date,
+            *entry.technologies,
+        ]
+        public_values.extend(
+            value
+            for a in entry.activities
+            for value in (a.title, a.text, a.start_date, a.end_date, *a.technologies)
+        )
+        if any(note_like(value) for value in public_values) or (
+            "**Nome" in entry.text and "**Telefone" in entry.text
+        ):
             raise ValueError(
                 "Há texto bruto ou restrições misturadas às informações confirmadas. Revise a importação antes de gerar o currículo."
             )
@@ -341,6 +372,9 @@ def generate_resume(db, config, job, data_dir, use_ai=False, force=False):
                 pass
         if use_ai:
             entries = use_ai_selection(entries, job, config.llm)
+        from core.assisted_matching import select_activity_evidence
+
+        entries = select_activity_evidence(entries, job)
         md = build_markdown(config.profile, entries, language)
         folder = (
             data_dir
