@@ -33,6 +33,10 @@ export function initNavTabs() {
 }
 
 export function switchScreen(name) {
+  const routes = {'my-profile':'profile',preferences:'preferences',assistant:'jobs',configuration:'settings',profile:'profile',settings:'settings','knowledge-base':'profile'};
+  const assistantPage = routes[name];
+  if (name === 'profile' || name === 'knowledge-base') name = 'my-profile';
+  if (name === 'settings') name = 'configuration';
   state.currentScreen = name;
   document.querySelectorAll('#navbar .nav-tabs a[role="tab"]').forEach(a => {
     const isActive = a.dataset.screen === name;
@@ -41,11 +45,11 @@ export function switchScreen(name) {
     a.tabIndex = isActive ? 0 : -1;
   });
   document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
-  const el = document.getElementById('screen-' + name);
+  const el = document.getElementById('screen-' + (assistantPage ? 'assistant' : name));
   if (el) el.classList.remove('hidden');
 
   // Load data for the screen
-  if (name === 'assistant') loadAssistant();
+  if (assistantPage) { loadAssistant(assistantPage); return; }
   if (name === 'dashboard') { loadFeedHistory(); loadApplyMode(); loadDefaultResume(); }
   if (name === 'applications') loadApplications();
   if (name === 'profile') loadProfileFiles();
@@ -59,5 +63,5 @@ export function showApp() {
   document.getElementById('wizard-overlay').classList.add('hidden');
   document.getElementById('navbar').classList.remove('hidden');
   document.getElementById('app-screens').classList.remove('hidden');
-  switchScreen('assistant');
+  switchScreen('my-profile');
 }

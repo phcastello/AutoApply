@@ -90,7 +90,9 @@ class TestInvokeLLM:
         llm = SimpleNamespace(provider="openai", api_key="sk-test", model="")
         with patch("core.ai_engine._call_llm", return_value="ok") as mock:
             invoke_llm("test", llm)
-            mock.assert_called_once_with("openai", "sk-test", "gpt-4o", "test", 120)
+            mock.assert_called_once_with("openai", "sk-test", "gpt-6.1-sol", "test", 120,
+                endpoint="", protocol="auto", max_output_tokens=8192, test_request=False,
+                response_format=None, retries=0)
 
 
 # ===================================================================
@@ -134,7 +136,8 @@ class TestOpenAICompatibleCall:
             "choices": [{"message": {"content": "  Cover letter  "}}]
         }
         with patch("core.ai_engine.requests.post", return_value=mock_resp):
-            result = _call_openai_compatible("openai", "sk-test", "gpt-4o", "prompt", 30)
+            result = _call_openai_compatible("openai", "sk-test", "gpt-4o", "prompt", 30,
+                endpoint="https://api.openai.com/v1/chat/completions")
             assert result == "Cover letter"
 
     def test_deepseek(self):
@@ -507,7 +510,7 @@ class TestLLMRetry:
         with patch("core.ai_engine.requests.post",
                     side_effect=[req.Timeout("timed out"), mock_resp_ok]), \
              patch("core.ai_engine.time.sleep"):
-            result = _call_llm("openai", "key", "model", "test")
+            result = _call_llm("openai", "key", "model", "test", endpoint="https://api.openai.com/v1/chat/completions")
             assert result == "done"
 
     def test_exponential_backoff_delays(self):
@@ -519,7 +522,7 @@ class TestLLMRetry:
 
         with patch("core.ai_engine.requests.post", return_value=mock_resp_500), \
              patch("core.ai_engine.time.sleep") as mock_sleep:
-            with pytest.raises(RuntimeError, match="after 4 attempts"):
+            with pytest.raises(RuntimeError, match="500"):
                 _call_llm("anthropic", "key", "model", "test")
             assert mock_sleep.call_count == MAX_RETRIES
             delays = [call.args[0] for call in mock_sleep.call_args_list]

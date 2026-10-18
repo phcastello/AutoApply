@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from config.settings import (
+    _credential_name,
     AppConfig,
     _save_config_raw,
     load_config,
@@ -116,7 +117,7 @@ class TestKeyringIntegration:
 
         # Verify keyring was called
         mock_keyring.set_password.assert_called_once_with(
-            "autoapply", "llm_api_key:openai:default", "sk-test-123"
+            "autoapply", _credential_name(cfg.llm), "sk-test-123"
         )
         # Verify config.json has empty api_key
         saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
@@ -169,7 +170,7 @@ class TestKeyringIntegration:
 
         # Key should be migrated to keyring
         mock_keyring.set_password.assert_called_once_with(
-            "autoapply", "llm_api_key:openai:default", "sk-migrate-me"
+            "autoapply", _credential_name(cfg.llm), "sk-migrate-me"
         )
         # config.json should now have empty api_key
         saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))

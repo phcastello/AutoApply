@@ -6,10 +6,12 @@ import { setTags } from './tag-input.js';
 import { checkLoginSessions } from './login.js';
 import { t, getLocale, setLocale } from './i18n.js';
 import { updateAIIndicators } from './ai-status.js';
+import { apiFetch } from './api.js';
+import { testAI, credentialStatus } from './ai-config.js';
 
 const LLM_DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-20250514',
-  openai: 'gpt-4o',
+  openai: 'gpt-6.1-sol',
   google: 'gemini-2.0-flash',
   deepseek: 'deepseek-chat',
 };
@@ -66,7 +68,22 @@ export async function loadSettings() {
     document.getElementById('set-llm-provider').value = llm.provider || '';
     document.getElementById('set-llm-model').value    = llm.model || '';
     document.getElementById('set-llm-api-key').value  = llm.api_key || '';
-    onLLMProviderChange();
+    document.getElementById('set-llm-endpoint').value = llm.endpoint || '';
+    document.getElementById('set-llm-protocol').value = llm.protocol || 'auto';
+    document.getElementById('set-llm-model').placeholder = LLM_DEFAULT_MODELS[llm.provider] || 'ID do modelo';
+    document.getElementById('set-llm-advanced').open = !!llm.endpoint || llm.provider==='compatible';
+    document.getElementById('llm-key-status').textContent = credentialStatus(llm);
+    document.getElementById('set-llm-endpoint').oninput = () => {
+      document.getElementById('set-llm-api-key').value='';
+      document.getElementById('llm-key-status').textContent='Destino alterado; a chave anterior não será enviada.';
+    };
+    document.getElementById('set-remove-ai-key').onclick = async () => {
+      try {
+        const r=await apiFetch('/api/ai/credential',{method:'DELETE'});
+        document.getElementById('set-llm-api-key').value='';
+        document.getElementById('llm-key-status').textContent=credentialStatus(r.llm||{});
+      } catch(e) {document.getElementById('llm-key-status').textContent=e.message;}
+    };
 
     setTags('set-titles-tags',    pr.job_titles || []);
     setTags('set-locations-tags', pr.locations || []);
@@ -166,6 +183,8 @@ export async function saveSettings() {
       provider: document.getElementById('set-llm-provider').value,
       api_key:  document.getElementById('set-llm-api-key').value,
       model:    document.getElementById('set-llm-model').value,
+      endpoint: document.getElementById('set-llm-endpoint').value,
+      protocol: document.getElementById('set-llm-protocol').value,
     },
     search_criteria: {
       job_titles:        state.tagInputs['set-titles-tags'] || [],
@@ -179,11 +198,13 @@ export async function saveSettings() {
   };
 
   try {
-    await fetch('/api/config', {
+    await apiFetch('/api/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
     });
+    document.getElementById('set-llm-api-key').value='';
+    window.dispatchEvent(new Event('autoapply-config-saved'));
 
     // Save schedule separately via dedicated endpoint
     const schedData = {
@@ -192,7 +213,7 @@ export async function saveSettings() {
       start_time:   document.getElementById('set-schedule-start').value,
       end_time:     document.getElementById('set-schedule-end').value,
     };
-    await fetch('/api/bot/schedule', {
+    await apiFetch('/api/bot/schedule', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(schedData),
@@ -212,8 +233,8 @@ export async function saveSettings() {
     const msg = document.getElementById('settings-saved-msg');
     msg.classList.remove('hidden');
     setTimeout(() => msg.classList.add('hidden'), 2500);
-  } catch {
-    alert(t('settings.save_error'));
+  } catch (e) {
+    alert(e.message || t('settings.save_error'));
   }
 }
 
@@ -328,10 +349,13 @@ function _updateDefaultResumeUI(filename) {
 export function onLLMProviderChange() {
   const provider = document.getElementById('set-llm-provider').value;
   const modelInput = document.getElementById('set-llm-model');
-  if (provider && !modelInput.value) {
-    modelInput.placeholder = LLM_DEFAULT_MODELS[provider] || '';
-  }
-  document.getElementById('llm-key-status').textContent = '';
+  modelInput.value='';
+  modelInput.placeholder = LLM_DEFAULT_MODELS[provider] || 'ID do modelo';
+  document.getElementById('set-llm-api-key').value='';
+  document.getElementById('set-llm-endpoint').value='';
+  document.getElementById('set-llm-protocol').value='auto';
+  document.getElementById('set-llm-advanced').open=provider==='compatible';
+  document.getElementById('llm-key-status').textContent = 'Provedor alterado. Teste para verificar a configuração deste destino.';
 }
 
 export async function validateLLMKey() {
@@ -342,40 +366,24 @@ export async function validateLLMKey() {
   const btn      = document.getElementById('btn-validate-key');
 
   if (!provider) { status.textContent = t('settings.select_provider'); status.style.color = '#f87171'; return; }
-  if (!apiKey)   { status.textContent = t('settings.enter_api_key'); status.style.color = '#f87171'; return; }
 
   btn.disabled = true;
   btn.textContent = t('settings.validating');
   status.textContent = '';
 
   try {
-    const res = await fetch('/api/ai/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, api_key: apiKey, model: model || undefined }),
-    });
-    const data = await res.json();
+    const data = await testAI({provider,api_key:apiKey,model,
+      endpoint:document.getElementById('set-llm-endpoint').value,
+      protocol:document.getElementById('set-llm-protocol').value});
     if (data.valid) {
-      status.textContent = t('settings.key_valid');
+      status.textContent = `${data.message} Modelo: ${data.model}. Clique em Salvar para guardar alterações.`;
       status.style.color = '#34d399';
-      // Auto-save the validated key so it persists immediately
-      try {
-        await fetch('/api/config', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ llm: { provider, api_key: apiKey, model: model || '' } }),
-        });
-        state.aiAvailable = true;
-        updateAIIndicators();
-        const banner = document.getElementById('ai-warning-banner');
-        if (banner) banner.classList.toggle('hidden', true);
-      } catch { /* save failed silently — user can still use main Save */ }
     } else {
       status.textContent = t('settings.key_invalid');
       status.style.color = '#f87171';
     }
-  } catch {
-    status.textContent = t('settings.validation_failed');
+  } catch (e) {
+    status.textContent = e.message || t('settings.validation_failed');
     status.style.color = '#f87171';
   } finally {
     btn.disabled = false;

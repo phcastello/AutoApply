@@ -14,6 +14,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
+from config.ai_destination import credential_scope, is_mask, is_official
+from core.profile_schema import Activity
+
 _logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -26,8 +29,54 @@ KEYRING_KEY_NAME = "llm_api_key"
 
 
 def _credential_name(llm) -> str:
-    scope = hashlib.sha256(llm.endpoint.encode()).hexdigest()[:16] if llm.endpoint else "default"
+    scope = hashlib.sha256(credential_scope(llm)[1].encode()).hexdigest()[:24]
     return f"{KEYRING_KEY_NAME}:{llm.provider}:{scope}"
+
+
+def environment_credential(llm) -> tuple[str, str]:
+    """Environment secrets are bound to a provider and destination, never global."""
+    names = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+    }
+    name = names.get(llm.provider)
+    if name and is_official(llm) and os.environ.get(name):
+        return os.environ[name], name
+    if (
+        os.environ.get("AUTOAPPLY_LLM_API_KEY")
+        and os.environ.get("AUTOAPPLY_LLM_PROVIDER") == llm.provider
+    ):
+        scope = LLMConfig(
+            provider=llm.provider, endpoint=os.environ.get("AUTOAPPLY_LLM_ENDPOINT", "")
+        )
+        if credential_scope(scope) == credential_scope(llm):
+            return os.environ["AUTOAPPLY_LLM_API_KEY"], "AUTOAPPLY_LLM_API_KEY"
+    return "", ""
+
+
+def stored_credential(llm) -> str:
+    if not llm.provider or not _check_keyring():
+        return ""
+    import keyring
+
+    return keyring.get_password(KEYRING_SERVICE, _credential_name(llm)) or ""
+
+
+def remove_credential(llm) -> None:
+    if _check_keyring():
+        import keyring
+
+        legacy_scope = (
+            hashlib.sha256(llm.endpoint.encode()).hexdigest()[:16] if llm.endpoint else "default"
+        )
+        for name in (_credential_name(llm), f"{KEYRING_KEY_NAME}:{llm.provider}:{legacy_scope}"):
+            try:
+                keyring.delete_password(KEYRING_SERVICE, name)
+            except keyring.errors.PasswordDeleteError:
+                pass
+    llm.api_key = ""
 
 
 def _check_keyring() -> bool:
@@ -65,6 +114,16 @@ class CareerEntry(BaseModel):
     proficiency: str = ""
     source: str = "manual"
     confirmed: bool = False
+    source_excerpt: str = ""
+    import_key: str = ""
+    import_mode: str = ""
+    import_engine: str = ""
+    import_version: int = 0
+    source_document_id: str = ""
+    date_notes: list[str] = []
+    activities: list[Activity] = []
+    proficiency_basis: str = ""
+    uncertainties: list[str] = []
 
 
 class UserProfile(BaseModel):
@@ -87,6 +146,9 @@ class UserProfile(BaseModel):
     github_url: str = ""
     professional_links: list[str] = []
     career_entries: list[CareerEntry] = []
+    generation_constraints: list[dict] = []
+    contact_notes: list[str] = []
+    location_is_reference: bool = False
 
     # Backward-compatible property — used by AI engine prompts and Lever/Indeed
     @property
@@ -96,6 +158,8 @@ class UserProfile(BaseModel):
     # Backward-compatible property — formatted location string
     @property
     def location(self) -> str:
+        if self.location_is_reference:
+            return ""
         parts = [self.city, self.state]
         loc = ", ".join(p for p in parts if p)
         if self.country and self.country != "United States":
@@ -152,6 +216,7 @@ class SearchCriteria(BaseModel):
     greenhouse_boards: list[str] = ["stripe"]
     lever_boards: list[str] = ["ciandt"]
     max_results: int = Field(default=20, ge=1, le=100)
+    source_names: dict[str, str] = {}
 
 
 class ScheduleConfig(BaseModel):
@@ -166,6 +231,8 @@ class LLMConfig(BaseModel):
     api_key: str = ""
     model: str = ""  # Empty = use default for provider
     endpoint: str = ""
+    protocol: str = "auto"
+    credential_version: int = 2
 
 
 class ResumeReuseConfig(BaseModel):
@@ -230,7 +297,22 @@ def load_config() -> AppConfig | None:
 
         credential_name = _credential_name(config.llm)
         stored_key = keyring.get_password(KEYRING_SERVICE, credential_name)
-        if not stored_key and "endpoint" not in data.get("llm", {}):
+        if not stored_key and "credential_version" not in data.get("llm", {}):
+            old_scope = (
+                hashlib.sha256(config.llm.endpoint.encode()).hexdigest()[:16]
+                if config.llm.endpoint
+                else "default"
+            )
+            stored_key = keyring.get_password(
+                KEYRING_SERVICE, f"{KEYRING_KEY_NAME}:{config.llm.provider}:{old_scope}"
+            )
+            if stored_key:
+                keyring.set_password(KEYRING_SERVICE, credential_name, stored_key)
+        if (
+            not stored_key
+            and "credential_version" not in data.get("llm", {})
+            and "endpoint" not in data.get("llm", {})
+        ):
             # One-time migration from the upstream's shared provider key slot.
             stored_key = keyring.get_password(KEYRING_SERVICE, KEYRING_KEY_NAME)
             if stored_key:
@@ -249,6 +331,10 @@ def load_config() -> AppConfig | None:
 
 
 def save_config(config: AppConfig) -> None:
+    if is_mask(config.llm.api_key):
+        raise ValueError(
+            "Uma máscara não é uma credencial. Deixe o campo vazio para manter a chave."
+        )
     # Store API key in keyring if possible
     if config.llm.api_key and not _check_keyring():
         raise ValueError(
@@ -259,7 +345,7 @@ def save_config(config: AppConfig) -> None:
 
         keyring.set_password(KEYRING_SERVICE, _credential_name(config.llm), config.llm.api_key)
 
-    _save_config_raw(config, strip_api_key=_check_keyring())
+    _save_config_raw(config, strip_api_key=True)
 
 
 def _save_config_raw(config: AppConfig, strip_api_key: bool = False) -> None:

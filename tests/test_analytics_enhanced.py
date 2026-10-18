@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -60,7 +61,7 @@ def _insert_app(db, *, platform="linkedin", status="applied", match_score=75,
                    (external_id, platform, job_title, company, apply_url,
                     match_score, status, applied_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (f"ext-{time.monotonic_ns()}", platform, job_title, company,
+                (f"ext-{uuid.uuid4().hex}", platform, job_title, company,
                  "https://example.com", match_score, status, applied_at, updated_at),
             )
         elif applied_at:
@@ -69,12 +70,12 @@ def _insert_app(db, *, platform="linkedin", status="applied", match_score=75,
                    (external_id, platform, job_title, company, apply_url,
                     match_score, status, applied_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (f"ext-{time.monotonic_ns()}", platform, job_title, company,
+                (f"ext-{uuid.uuid4().hex}", platform, job_title, company,
                  "https://example.com", match_score, status, applied_at),
             )
         else:
             db.save_application(
-                external_id=f"ext-{time.monotonic_ns()}",
+                external_id=f"ext-{uuid.uuid4().hex}",
                 platform=platform,
                 job_title=job_title,
                 company=company,

@@ -1,6 +1,6 @@
 # AI Job Application Assistant
 
-MVP local para descobrir vagas publicadas, comparar com um perfil confirmado e baixar um currículo por oportunidade. A candidatura é concluída manualmente na página oficial. O fluxo principal está na aba **Candidaturas assistidas**, em português brasileiro.
+MVP local para descobrir vagas publicadas, comparar com um perfil confirmado e baixar um currículo por oportunidade. A candidatura é concluída manualmente na página oficial. O fluxo principal tem quatro áreas em português: **Meu perfil**, **Preferências de vagas**, **Vagas e candidaturas** e **Configurações**. Recursos anteriores ficam em opções avançadas.
 
 Baseado no [AutoApply de Abhishek Mandapmalvi](https://github.com/AbhishekMandapmalvi/AutoApply), versão 2.4.1, commit `053071ba1bba5733b522d78c3d645002d817e55a`. Reutiliza Flask, dashboard, SQLite, Knowledge Base, parser PDF/DOCX/TXT/MD, TF-IDF, ReportLab e provedores de IA. A [licença MIT e copyright original](LICENSE) permanecem intactos. A [documentação original arquivada](docs/UPSTREAM_README.md) não comprova o funcionamento das integrações históricas.
 
@@ -24,16 +24,20 @@ O servidor escuta em `127.0.0.1`. Não o publique na internet: o dashboard dá a
 
 ## Perfil e importação
 
-1. Abra **Candidaturas assistidas** e preencha nome, e-mail e contatos desejados.
+1. Abra **Meu perfil** e preencha nome, e-mail e contatos desejados. Nome e e-mail só são exigidos ao gerar currículo.
 2. **Adicionar informação** permite registrar experiência, formação, projeto, competência, idioma, certificação, pesquisa e outras informações.
 3. Use uma informação por entrada. Preencha empresa/instituição, cargo/curso/projeto, datas, tecnologias confirmadas, link, modalidade e proficiência quando disponíveis.
 4. Marque **Revisei e confirmo esta informação** após conferir. Salve o perfil.
 
 Projetos acadêmicos, iniciação científica, monitoria, publicações e atividades adicionais podem ser registrados em Pesquisa ou Outras informações. Para comparar duração profissional, use datas **AAAA-MM**; datas livres permanecem no currículo e exigem conferência no matching. O link GitHub é apenas contato; não inferimos competências de repositórios.
 
-**Importar PDF, DOCX, MD ou TXT** extrai texto localmente em rascunhos, sem enviar o documento para IA. Revise, divida, categorize e confirme. Limite: 5 MB. PDFs digitalizados precisam de OCR externo.
+**Importar PDF, DOCX, MD ou TXT** extrai texto localmente e organiza rascunhos por seção. A opção **Importação inteligente** envia o texto ao provedor somente quando marcada: sugestões passam por schema e conferência de trechos de origem, permanecendo não confirmadas. Revise e confirme individualmente ou em lote. Limite: 5 MB. PDFs digitalizados precisam de OCR externo.
 
-**Trazer sugestões da Knowledge Base** reaproveita entradas antigas como rascunhos não confirmados. A KB original pode conter texto extraído por IA ou de currículos antigos: confira a origem. O novo fluxo nunca usa automaticamente esses textos ou currículos gerados como fatos.
+Escolha explicitamente entre **extração estruturada local**, **importação inteligente com IA quando necessária** e **importação básica de texto**. O modo básico apenas mostra o texto, sem anunciá-lo como campos extraídos. Nos modos estruturados, a janela de revisão permite corrigir contatos, categorias e fatos antes de aplicar ao perfil. Aplicar como rascunhos não confirma qualificações; salvar persiste os campos. Importar novamente ignora fatos já existentes, inclusive rascunhos ainda não salvos.
+
+Atividades e PoCs de uma empresa permanecem dentro daquele vínculo. Notas de confidencialidade, limites de divulgação e instruções de precisão ficam separadas dos fatos e não entram no currículo. Datas aproximadas, previsões e proficiência autoavaliada são preservadas. Uma cidade de referência para testes não é tratada como residência confirmada. Veja o [relatório da correção e validação da importação](docs/structured-profile-import.md).
+
+**Recuperar sugestões do perfil antigo** reaproveita entradas anteriores como rascunhos não confirmados. Elas podem conter texto extraído por IA ou de currículos antigos: confira a origem. O novo fluxo nunca usa automaticamente esses textos ou currículos gerados como fatos.
 
 O perfil persiste em `config.json` no diretório privado de dados. Cada currículo registra os fatos utilizados e seus IDs em `provenance.json`.
 
@@ -41,7 +45,9 @@ O perfil persiste em `config.json` no diretório privado de dados. Cada currícu
 
 Configure cargos, áreas, palavras-chave/exclusões, senioridade, localização, países, modalidades, horas, jornada, salário, contratos, idiomas, realocação, visto, empresas bloqueadas, idioma do currículo e pontuação mínima. Campos vazios não restringem a busca.
 
-As fontes comprovadamente operacionais são as APIs públicas de [Greenhouse](https://docs.greenhouse.io/job-board.html) e [Lever](https://github.com/lever/postings-api), usadas somente para leitura. Configure boards de empresas, por exemplo **stripe** no Greenhouse e **ciandt** no Lever. Não é uma busca global por todas as empresas. Obtenha o board token na página oficial da empresa; não use identificadores de empresas por suposição.
+Escolha modalidades aceitas e adicione cidades de comparecimento com estado e país. O resumo mostra as regras antes de salvar. A elegibilidade por local é separada da compatibilidade: vagas incertas aparecem para revisão; incompatíveis permanecem no histórico, sem permitir nova geração. Remoto depende de permissão explícita para trabalhar da sua residência, não da sede da empresa.
+
+As fontes são as APIs públicas de [Greenhouse](https://docs.greenhouse.io/job-board.html) e [Lever](https://github.com/lever/postings-api), usadas somente para leitura. Em **Vagas e candidaturas**, abra **Empresas e fontes consultadas** e use **Adicionar página de carreiras** com nome e URL oficial suportada. Identificadores técnicos ficam nas opções avançadas. Não é uma busca global por todas as empresas.
 
 - Cargos são alternativas e usam texto do título sem distinguir maiúsculas. Palavras incluídas são alternativas na descrição/título.
 - Palavras excluídas e empresas bloqueadas excluem resultados novos. A pontuação mínima filtra a exibição preservando histórico.
@@ -65,20 +71,20 @@ O score não é chance de contratação ou aprovação ATS. Desconhecer um difer
 
 ## Configuração de IA e privacidade
 
-Na seção **IA opcional e privacidade**, escolha OpenAI, Anthropic, Google ou DeepSeek, informe modelo e chave, salve e use **Salvar e testar provedor**. Os modelos padrão são herdados do upstream e podem não estar disponíveis na sua conta; informe um modelo válido para seu provedor.
+Em **Configurações**, escolha OpenAI, Anthropic, Google, DeepSeek ou servidor compatível. Informe o modelo e, se necessário, a chave. **Testar conexão** usa os campos atuais sem salvá-los e funciona com perfil vazio. O padrão da OpenAI é `gpt-6.1-sol`, via Responses; IDs manuais são aceitos. Disponibilidade do modelo e acesso da conta são verificados na geração de teste. Veja o [diagnóstico reproduzido e as fontes oficiais](docs/ai-integration-incident.md).
 
-Para servidor compatível com Chat Completions, informe endpoint **completo**, por exemplo `http://127.0.0.1:1234/v1/chat/completions`, e modelo. HTTP só é permitido para localhost; endpoints remotos precisam de HTTPS. Modelos locais podem dispensar chave.
+Para servidor compatível, abra as opções avançadas e informe URL-base (por exemplo `http://127.0.0.1:1234/v1`) ou endpoint completo. Escolha Responses ou Chat Completions; endpoints antigos explícitos são preservados. HTTP só é permitido para localhost; endpoints remotos precisam de HTTPS. Modelos locais podem dispensar chave. Campo de chave vazio mantém a credencial do mesmo destino. Remoção é explícita; trocar destino limpa a chave digitada.
 
 **Usar IA para selecionar informações** transmite os textos profissionais candidatos e a descrição ao provedor. Contatos do cabeçalho não compõem o pedido; evite dados sensíveis desnecessários no texto das experiências. A resposta só seleciona IDs existentes. Não reescreve qualificações, cargos, datas ou resultados. Respostas inválidas provocam erro, sem publicar currículo.
 
 Chaves ficam no cofre do sistema por provedor/endpoint e não são devolvidas pela API de configuração. Sem cofre, o aplicativo recusa gravar chave em texto puro. Alternativa por sessão:
 
 ```powershell
-$env:AUTOAPPLY_LLM_API_KEY = "sua-chave"
+$env:OPENAI_API_KEY = "sua-chave"
 .\.venv\Scripts\python.exe run.py --no-browser
 ```
 
-Essa variável vale para o provedor escolhido na sessão: não use chave de um serviço em outro endpoint. `.env.example` documenta opções; `.env` **não é carregado automaticamente**. Não versione chaves, documentos pessoais, sessões ou diretórios de dados.
+`OPENAI_API_KEY` é aceita somente na OpenAI oficial. Também há variáveis específicas para os demais provedores. Se usar `AUTOAPPLY_LLM_API_KEY`, defina `AUTOAPPLY_LLM_PROVIDER` (por exemplo `openai`); para servidores personalizados, defina também `AUTOAPPLY_LLM_ENDPOINT` com o destino correspondente. A variável genérica sem escopo não é enviada. `.env.example` documenta opções; `.env` **não é carregado automaticamente**. Não versione chaves, documentos pessoais, sessões ou diretórios de dados.
 
 ## Currículos, download e histórico
 

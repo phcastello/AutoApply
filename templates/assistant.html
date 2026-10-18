@@ -1,58 +1,101 @@
 <section class="screen hidden" id="screen-assistant" lang="pt-BR">
-  <h1>Candidaturas assistidas</h1>
-  <p>Configure seu perfil, busque vagas publicadas e prepare o currículo para concluir a candidatura na página oficial.</p>
-  <p class="text-dim">Envio automático desativado neste fluxo. Compatibilidade não é probabilidade de contratação. Nenhum dado fictício é inserido automaticamente.</p>
-  <div id="assistant-message" role="status" aria-live="polite" style="white-space:pre-wrap;margin:16px 0"></div>
-  <details class="card" open><summary><strong>1. Perfil e informações confirmadas</strong></summary>
-    <div id="assistant-contact" class="assistant-grid"></div>
-    <p>Adicione uma informação por entrada. Use instituição e curso para formação; empresa e cargo para experiência; nome e contribuição para projetos. Datas, tecnologias, idioma e nível são opcionais. Só entradas marcadas como confirmadas entram no currículo.</p>
-    <div class="flex gap-sm" style="flex-wrap:wrap;margin:12px 0">
-      <button class="btn btn-primary" id="assistant-add-fact">Adicionar informação</button>
-      <label class="btn btn-ghost">Importar PDF, DOCX, MD ou TXT <input id="assistant-import" type="file" accept=".pdf,.docx,.md,.txt" style="max-width:210px"></label>
-      <button class="btn btn-ghost" id="assistant-kb">Trazer sugestões da Knowledge Base</button>
+  <h1 id="assistant-title">Meu perfil</h1><p id="assistant-intro"></p>
+  <div id="assistant-welcome" class="card hidden">Comece pelo perfil e pelas preferências. A IA é opcional; depois, busque vagas nas empresas escolhidas.</div>
+  <p id="assistant-message" role="status" aria-live="polite"></p><p id="assistant-save-status" role="status">Sem alterações pendentes.</p>
+  <div data-assistant-page="profile">
+    <details class="card" open><summary>Contatos</summary><div id="assistant-contact" class="assistant-grid"></div>
+      <p class="text-dim">Site pessoal ou portfólio: página que apresenta seus trabalhos. Pode deixar vazio se não tiver. GitHub é um contato separado; repositórios não são importados.</p>
+      <p id="assistant-contact-notes" class="text-dim" style="white-space:pre-wrap"></p>
+      <label><input id="contact-location-reference" type="checkbox"> Esta localização é apenas referência de teste; não usar como residência no currículo.</label>
+    </details>
+    <div class="card"><h2>Trajetória e competências</h2><p>Registre fatos da sua trajetória. Apenas informações confirmadas entram nos currículos.</p>
+      <div class="assistant-toolbar"><label>Tipo de informação<select id="assistant-new-category"></select></label><button class="btn btn-primary" id="assistant-add-fact">Adicionar informação</button></div>
+      <details><summary>Importar ou recuperar informações</summary><p>PDF, DOCX, TXT ou Markdown, até 5 MB. O texto é extraído localmente primeiro.</p>
+        <label>Modo de importação<select id="assistant-import-mode"><option value="structured">Extração estruturada local (títulos e campos, sem IA)</option><option value="ai">Importação inteligente com IA quando necessária</option><option value="basic">Importação básica de texto (sem extração de campos)</option></select></label>
+        <p id="assistant-import-mode-help">A extração local aproveita títulos e campos de Markdown, DOCX, PDF e TXT. Você revisa os campos antes de aplicá-los.</p>
+        <label id="assistant-import-consent" hidden><input id="assistant-import-ai" type="checkbox"> Autorizo enviar o texto necessário ao provedor configurado quando a estrutura local não for suficiente. Notas de confidencialidade são tratadas como restrições.</label>
+        <label class="btn btn-ghost">Selecionar documento <input id="assistant-import" type="file" accept=".pdf,.docx,.md,.txt"></label>
+        <button class="btn btn-ghost" id="assistant-kb">Recuperar sugestões do perfil antigo</button><div id="assistant-import-suggestions"></div>
+      </details>
+      <button class="btn btn-ghost" id="assistant-confirm-all">Confirmar todos os rascunhos revisados abaixo</button><div id="assistant-facts"></div>
+      <details><summary>Restrições de divulgação e precisão — não entram no currículo</summary><p>Estas observações acompanham o perfil para impedir afirmações indevidas. Não são experiências ou qualificações.</p><div id="assistant-profile-constraints"></div></details>
     </div>
-    <p class="text-dim">Importação extrai texto localmente. Revise e categorize os rascunhos antes de confirmar; documentos gerados anteriormente não viram fatos automaticamente.</p>
-    <div id="assistant-facts"></div>
-  </details>
-  <details class="card" open style="margin-top:16px"><summary><strong>2. Preferências e fontes de vagas</strong></summary>
-    <p>Campos vazios não restringem a busca. Listas usam vírgulas. Buscamos nos boards das empresas configuradas, não em toda a internet.</p>
-    <div id="assistant-preferences" class="assistant-grid"></div>
-    <p class="text-dim">País, salário, jornada, contrato, idioma e visto podem exigir conferência manual quando a fonte não fornece dados comparáveis. A descrição completa permanece disponível.</p>
-  </details>
-  <details class="card" style="margin-top:16px"><summary><strong>3. IA opcional e privacidade</strong></summary>
-    <p>A seleção local funciona sem chave. Ao habilitar IA, textos profissionais confirmados e a descrição da vaga serão enviados ao provedor escolhido. Nome e contatos não fazem parte do pedido de seleção. O modelo seleciona referências, sem escrever qualificações.</p>
-    <div id="assistant-ai" class="assistant-grid"></div>
-    <label><input id="assistant-use-ai" type="checkbox"> Usar IA para selecionar informações ao gerar currículo</label>
-    <p id="assistant-key-status" class="text-dim"></p>
-    <button class="btn btn-ghost" id="assistant-ai-test">Salvar e testar provedor</button>
-  </details>
-  <div class="flex gap-sm" style="margin:20px 0;flex-wrap:wrap">
-    <button class="btn btn-primary" id="assistant-save">Salvar perfil e preferências</button>
-    <button class="btn btn-success" id="assistant-search">Salvar e pesquisar vagas reais</button>
-    <button class="btn btn-ghost" id="assistant-refresh">Atualizar histórico</button>
   </div>
-  <div class="card"><h2>4. Vagas e histórico</h2>
-    <div class="assistant-grid">
-      <label>Filtrar cargo ou empresa<input id="assistant-filter" type="search"></label>
-      <label>Compatibilidade mínima<input id="assistant-min-score" type="number" min="0" max="100" value="0"></label>
-      <label>Estado<select id="assistant-status-filter"><option value="">Todos</option></select></label>
+  <div data-assistant-page="preferences" hidden>
+    <div class="card"><h2>Onde aceita trabalhar</h2><p>Modalidades e cidades são restrições obrigatórias. Trabalho remoto depende da elegibilidade para sua residência informada no perfil.</p>
+      <fieldset id="assistant-work-modes"><legend>Modalidades aceitas</legend><label><input type="checkbox" value="on-site"> Presencial</label><label><input type="checkbox" value="hybrid"> Híbrido</label><label><input type="checkbox" value="remote"> Remoto</label></fieldset>
+      <p>Cidades onde aceita comparecer presencialmente ou em regime híbrido:</p>
+      <div class="assistant-grid"><label>Cidade<input id="city-name" placeholder="Ex.: São Paulo"></label><label>Estado<input id="city-state" placeholder="Ex.: SP"></label><label>País<input id="city-country" value="Brasil"></label></div>
+      <button class="btn btn-ghost" id="assistant-add-city">Adicionar cidade</button><div id="assistant-cities" class="assistant-chips"></div><p id="assistant-location-summary" class="assistant-summary" aria-live="polite"></p>
     </div>
-    <p id="assistant-results-summary" role="status"></p>
-    <div id="assistant-jobs"></div>
+    <div class="card"><h2>Oportunidades desejadas</h2><p>Cargos e palavras incluídas orientam a busca; palavras excluídas e empresas bloqueadas são restrições.</p><div id="assistant-preferences" class="assistant-grid"></div></div>
+    <details class="card"><summary>Outras preferências e idioma do currículo</summary><p>Salário, jornada, contratos, horas e idiomas exigem conferência manual quando não há dados comparáveis. Áreas e realocação são contexto, sem filtro automático.</p><div id="assistant-extra-preferences" class="assistant-grid"></div></details>
   </div>
-  <dialog id="assistant-preview" style="width:90vw;max-width:1000px;height:90vh">
-    <button id="assistant-close-preview" class="btn btn-ghost">Fechar visualização</button>
-    <iframe title="Currículo PDF" id="assistant-pdf-frame" style="width:100%;height:85%;border:0"></iframe>
+  <div data-assistant-page="settings" hidden>
+    <div class="card"><h2>Inteligência artificial — opcional</h2><p>Teste a conexão sem enviar dados pessoais. Testar não salva a configuração.</p><div id="assistant-ai" class="assistant-grid"></div>
+      <p id="assistant-key-status"></p><p id="assistant-test-status" role="status">Conexão não testada.</p><details id="assistant-test-details" hidden><summary>Detalhes técnicos</summary><dl id="assistant-test-metadata"></dl></details>
+      <div class="assistant-toolbar"><button class="btn btn-ghost" id="assistant-ai-test">Testar conexão</button><button class="btn btn-ghost" id="assistant-remove-key">Remover chave armazenada</button></div>
+      <label><input id="assistant-use-ai" type="checkbox"> Usar IA para selecionar informações relevantes. Autorizo enviar fatos confirmados e a descrição da vaga ao provedor.</label><p class="text-dim">Os modos local e com IA preservam o texto confirmado. A seleção por IA não traduz ou reescreve o currículo. Nome e contatos não são enviados para a seleção.</p>
+    </div>
+    <details class="card"><summary>Recursos históricos avançados</summary><p>Dados e documentos anteriores continuam disponíveis. Perfil, preferências e IA são configurados nas quatro áreas principais.</p><button class="btn btn-ghost" data-legacy="resumes">Biblioteca anterior</button><button class="btn btn-ghost" data-legacy="analytics">Estatísticas anteriores</button></details>
+  </div>
+  <div data-assistant-page="jobs" hidden>
+    <details class="card"><summary>Empresas e fontes consultadas</summary><p>Consultamos as páginas configuradas no Greenhouse e Lever. Esta busca não cobre toda a internet.</p><div id="assistant-sources"></div>
+      <div class="assistant-grid"><label>Nome da empresa<input id="source-name"></label><label>Página de carreiras suportada<input id="source-url" type="url" placeholder="https://jobs.lever.co/empresa"></label></div><button class="btn btn-ghost" id="assistant-add-source">Adicionar página de carreiras</button>
+      <details><summary>Identificadores técnicos das fontes</summary><div id="assistant-boards" class="assistant-grid"></div></details>
+    </details>
+    <div class="assistant-toolbar"><button class="btn btn-success" id="assistant-search">Salvar e pesquisar vagas reais</button><button class="btn btn-ghost" id="assistant-refresh">Atualizar histórico</button></div>
+    <div class="card"><h2>Vagas e candidaturas</h2><p>Compatibilidade mede aderência ao perfil. Não representa chance de contratação ou aprovação em sistemas de seleção.</p>
+      <div class="assistant-grid"><label>Filtrar cargo ou empresa<input id="assistant-filter" type="search"></label><label>Compatibilidade mínima<input id="assistant-min-score" type="number" min="0" max="100" value="0"></label><label>Estado da candidatura<select id="assistant-status-filter"><option value="">Todos</option></select></label></div><p id="assistant-results-summary" role="status"></p><div id="assistant-jobs"></div>
+    </div>
+  </div>
+  <button class="btn btn-primary" id="assistant-save">Salvar alterações</button>
+  <dialog id="assistant-preview"><button id="assistant-close-preview" class="btn btn-ghost">Fechar visualização</button><iframe title="Currículo PDF" id="assistant-pdf-frame"></iframe></dialog>
+  <dialog id="assistant-review"><h2>Revisar currículo</h2><p>Confira cada redação e sua fonte confirmada. Edições pertencem somente a esta versão.</p><div id="assistant-review-facts"></div><button id="assistant-review-confirm" class="btn btn-primary">Confirmar revisão e gerar PDF/DOCX</button><button id="assistant-review-cancel" class="btn btn-ghost">Cancelar</button></dialog>
+  <dialog id="assistant-import-review" aria-labelledby="assistant-import-review-title">
+    <h2 id="assistant-import-review-title">Revisar importação</h2><p id="assistant-import-summary" role="status"></p>
+    <p>Nenhuma informação foi aplicada ainda. Corrija os campos, exclua itens indesejados e escolha aplicar rascunhos ou confirmar os itens revisados.</p>
+    <p id="assistant-import-review-warnings" role="status" style="white-space:pre-wrap"></p>
+    <div id="assistant-import-legacy"></div>
+    <h3>Contatos</h3><div id="assistant-import-review-contacts" class="assistant-grid"></div><p id="assistant-import-contact-notes" style="white-space:pre-wrap"></p>
+    <div id="assistant-import-review-facts"></div>
+    <details open><summary>Restrições preservadas (fora do conteúdo do currículo)</summary><ul id="assistant-import-review-constraints"></ul></details>
+    <div class="assistant-toolbar"><button type="button" id="assistant-import-apply" class="btn btn-primary">Aplicar como rascunhos</button><button type="button" id="assistant-import-confirm-apply" class="btn btn-success">Confirmar itens revisados e aplicar</button><button type="button" id="assistant-import-cancel" class="btn btn-ghost">Cancelar</button></div>
   </dialog>
 </section>
 <style>
-  .assistant-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:16px 0}
-  .assistant-grid label {display:flex;flex-direction:column;gap:6px}
-  .assistant-grid input,.assistant-grid select,.assistant-grid textarea {width:100%;box-sizing:border-box;background:var(--bg,#101823);color:var(--text,#edf2f7);border:1px solid var(--border,#738095);border-radius:6px;padding:9px;font:inherit}
-  .assistant-grid input[type="checkbox"] {width:auto;align-self:flex-start}
-  .assistant-job select {background:var(--bg,#101823);color:var(--text,#edf2f7);padding:8px;border:1px solid var(--border,#738095);border-radius:6px}
-  .assistant-fact,.assistant-job {border:1px solid var(--border,#999);border-radius:8px;padding:16px;margin:14px 0}
-  .assistant-fact textarea {min-height:90px}
+  #screen-assistant {max-width:1120px;margin:auto;padding-bottom:40px}
+  #screen-assistant .card {margin:18px 0;padding:24px}
+  #screen-assistant summary {cursor:pointer;font-weight:600;padding:5px 0}
+  #assistant-message {white-space:pre-wrap;margin:16px 0}
+  .assistant-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:18px 0}
+  .assistant-grid label,.assistant-toolbar label {display:flex;flex-direction:column;gap:7px}
+  #screen-assistant input:not([type=checkbox]):not([type=file]),#screen-assistant select,#screen-assistant textarea {width:100%;box-sizing:border-box;background:var(--bg,#101823);color:var(--text,#edf2f7);border:1px solid var(--border,#738095);border-radius:7px;padding:10px;font:inherit}
+  #screen-assistant textarea {min-height:110px;resize:vertical}
+  #screen-assistant button {white-space:normal}
+  .assistant-toolbar,.assistant-chips {display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0}
+  .assistant-chip {display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border,#738095);border-radius:18px;padding:3px 10px;font-size:.9rem}
+  .assistant-chip button {border:0;background:transparent;color:inherit;cursor:pointer;font-size:1.2rem}
+  .assistant-fact,.assistant-job {border:1px solid var(--border,#738095);border-radius:10px;padding:20px;margin:14px 0}
   .assistant-job pre {white-space:pre-wrap;font-family:inherit;max-height:450px;overflow:auto}
-  #assistant-preview::backdrop {background:#0008}
+  .assistant-summary {border-left:3px solid var(--accent,#65a6fa);padding:12px 16px}
+  #assistant-work-modes {display:flex;flex-wrap:wrap;gap:24px;padding:16px;border:1px solid var(--border,#738095)}
+  #assistant-preview,#assistant-review {width:min(1000px,90vw);max-height:90vh;overflow:auto;background:var(--bg,#101823);color:var(--text,#edf2f7);border:1px solid var(--border,#738095);border-radius:12px;padding:24px}
+  #assistant-preview {height:90vh} #assistant-pdf-frame {width:100%;height:85%;border:0} #screen-assistant dialog::backdrop {background:#0009}
+  #assistant-save {box-shadow:0 3px 15px #0005}
+  #screen-assistant [hidden] {display:none!important}
+  #assistant-import-review {width:min(1100px,94vw);max-height:92vh;overflow:auto;background:var(--bg,#101823);color:var(--text,#edf2f7);border:1px solid var(--border,#738095);border-radius:12px;padding:24px;margin:auto}
+  #assistant-import-review .import-wide {grid-column:1 / -1}
+  #assistant-import-review fieldset {border:1px solid var(--border,#738095);border-radius:8px;padding:14px;margin:14px 0}
+  #assistant-import-review > .assistant-toolbar {position:sticky;bottom:0;background:var(--bg,#101823);padding:12px 0;border-top:1px solid var(--border,#738095)}
+  #assistant-import-review pre {white-space:pre-wrap;max-height:240px;overflow:auto;font-family:inherit}
+  #assistant-import-review input[type=checkbox] {width:auto}
+  @media(max-width:600px) { #screen-assistant .card {padding:16px}.assistant-grid {grid-template-columns:1fr}#navbar {flex-wrap:wrap}#navbar .nav-tabs {overflow-x:auto;max-width:100%}}
+  @media(max-width:600px) {
+    #navbar {height:auto;display:grid;grid-template-columns:1fr auto;gap:0;padding:6px 12px}
+    #navbar .logo {grid-row:1;grid-column:1}
+    #navbar .nav-right {grid-row:1;grid-column:2;margin:0;font-size:.7rem}
+    #navbar .nav-tabs {grid-row:2;grid-column:1 / -1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:100%;height:auto;overflow:visible;gap:0;margin:0}
+    #navbar .nav-tabs li a {padding:10px 4px;font-size:.75rem;line-height:1.3;text-align:center;white-space:normal;display:block}
+  }
 </style>

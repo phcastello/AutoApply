@@ -10,30 +10,20 @@ Falls back to static templates when no API key is configured.
 from __future__ import annotations
 
 import logging
-import os
+import queue
+import re
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 
+from config.ai_destination import API_ENDPOINTS, DEFAULT_MODELS, destination
+from config.settings import LLMConfig, environment_credential
+
 logger = logging.getLogger(__name__)
-
-# Default models per provider
-DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-20250514",
-    "openai": "gpt-4o",
-    "google": "gemini-2.0-flash",
-    "deepseek": "deepseek-chat",
-}
-
-# API endpoints per provider
-API_ENDPOINTS = {
-    "anthropic": "https://api.anthropic.com/v1/messages",
-    "openai": "https://api.openai.com/v1/chat/completions",
-    "google": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-    "deepseek": "https://api.deepseek.com/v1/chat/completions",
-}
 
 RESUME_PROMPT = """
 You are an expert resume writer. Create a tailored, ATS-optimised resume for this specific job.
@@ -175,117 +165,181 @@ Bio / tone preference: {bio}
 """
 
 
+class AIError(RuntimeError):
+    """Only curated diagnostics cross the HTTP/task/log boundary."""
+
+    def __init__(self, category, message, *, status=None, code=None, param=None, request_id=None):
+        super().__init__(message)
+        self.details = dict(
+            category=category,
+            message=message,
+            http_status=status,
+            code=code,
+            param=param,
+            request_id=request_id,
+        )
+
+    def as_dict(self):
+        return self.details.copy()
+
+
 def check_ai_available(llm_config) -> bool:
-    """Check if an LLM provider is configured with an API key.
-
-    Args:
-        llm_config: LLMConfig with provider and api_key fields.
-
-    Returns:
-        True if provider and api_key are set, False otherwise.
-    """
-    if not llm_config:
+    if not llm_config or not llm_config.provider:
         return False
-    return bool(llm_config.provider and llm_config.api_key)
+    try:
+        url, _ = destination(
+            llm_config.provider,
+            getattr(llm_config, "endpoint", ""),
+            getattr(llm_config, "protocol", "auto"),
+        )
+        key, _ = environment_credential(llm_config)
+        return bool(
+            llm_config.api_key
+            or key
+            or (urlsplit(url).hostname in ("localhost", "127.0.0.1", "::1"))
+        )
+    except ValueError:
+        return False
 
 
 def validate_api_key(provider: str, api_key: str, model: str | None = None) -> bool:
-    """Validate an API key by making a minimal test request.
+    """Compatibility wrapper; HTTP clients use test_configuration for diagnostics."""
+    return test_configuration(LLMConfig(provider=provider, api_key=api_key, model=model or ""))[
+        "valid"
+    ]
 
-    Args:
-        provider: One of "anthropic", "openai", "google", "deepseek".
-        api_key: The API key to validate.
-        model: Optional model name override.
 
-    Returns:
-        True if the key is valid, False otherwise.
-    """
-    model = model or DEFAULT_MODELS.get(provider, "")
+def test_configuration(llm_config):
+    model = llm_config.model or DEFAULT_MODELS.get(llm_config.provider, "")
+    context = dict(provider=llm_config.provider, model=model)
     try:
-        _call_llm(provider, api_key, model, "Reply with OK", timeout=15)
-        return True
-    except Exception as e:
-        logger.debug("API key validation failed for %s: %s", provider, e)
-        return False
+        url, protocol = destination(llm_config.provider, llm_config.endpoint, llm_config.protocol)
+        context.update(endpoint=url, protocol=protocol)
+        invoke_llm(
+            "Reply with OK. No explanation.",
+            llm_config,
+            timeout_seconds=60,
+            max_output_tokens=4096,
+            test_request=True,
+        )
+        return dict(
+            valid=True, message="O provedor gerou uma resposta com esta configuração.", **context
+        )
+    except AIError as e:
+        return dict(valid=False, error=e.as_dict(), **context)
+    except ValueError:
+        return dict(
+            valid=False,
+            error=AIError(
+                "configuration", "Confira provedor, modelo, protocolo e URL do servidor."
+            ).as_dict(),
+            **context,
+        )
+    except Exception:
+        return dict(
+            valid=False,
+            error=AIError(
+                "application",
+                "Falha interna ao processar o teste de IA. Confira o protocolo e tente novamente.",
+            ).as_dict(),
+            **context,
+        )
 
 
-# Retry configuration (D-6)
+# Legacy entry points retained for existing callers and other providers.
 MAX_RETRIES = 3
-RETRY_BASE_DELAY = 1.0  # seconds
+RETRY_BASE_DELAY = 1.0
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
-def _call_llm(
-    provider: str,
-    api_key: str,
-    model: str,
-    prompt: str,
-    timeout: int = 120,
-) -> str:
-    """Call an LLM API with retry and exponential backoff (D-6).
-
-    Retries up to MAX_RETRIES times on transient errors (429, 5xx, network
-    errors) with exponential backoff (1s, 2s, 4s). Non-retryable errors
-    (401, 403, 400) fail immediately.
-
-    Args:
-        provider: One of "anthropic", "openai", "google", "deepseek".
-        api_key: API key for the provider.
-        model: Model identifier.
-        prompt: The prompt to send.
-        timeout: Request timeout in seconds.
-
-    Returns:
-        The generated text content.
-
-    Raises:
-        RuntimeError: If the API call fails after all retries.
-    """
-    def call_fn() -> str:
-        if provider == "anthropic":
-            return _call_anthropic(api_key, model, prompt, timeout)
-        elif provider == "google":
-            return _call_google(api_key, model, prompt, timeout)
-        elif provider in ("openai", "deepseek"):
-            return _call_openai_compatible(provider, api_key, model, prompt, timeout)
-        raise RuntimeError(f"Unsupported LLM provider: {provider}")
-
-    if provider not in ("anthropic", "google", "openai", "deepseek"):
-        raise RuntimeError(f"Unsupported LLM provider: {provider}")
-
-    last_error: Exception | None = None
-    for attempt in range(MAX_RETRIES + 1):
+def _call_llm(provider, api_key, model, prompt, timeout=120, **options):
+    retries = options.pop("retries", MAX_RETRIES)
+    deadline = time.monotonic() + timeout
+    for attempt in range(retries + 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AIError("timeout", "Tempo total de resposta da IA esgotado. Tente novamente.")
         try:
-            return call_fn()
-        except RuntimeError as e:
-            last_error = e
-            # Don't retry auth/client errors
-            error_msg = str(e)
-            if any(f"({code})" in error_msg for code in (400, 401, 403, 404)):
+            if options.get("endpoint") or provider in ("openai", "deepseek", "compatible"):
+                return _call_openai_compatible(
+                    provider, api_key, model, prompt, remaining, **options
+                )
+            if provider == "anthropic":
+                return _call_anthropic(api_key, model, prompt, remaining)
+            if provider == "google":
+                return _call_google(api_key, model, prompt, remaining)
+            raise AIError("configuration", "Unsupported LLM provider / provedor não suportado")
+        except AIError as e:
+            if (
+                e.details["http_status"] not in RETRYABLE_STATUS_CODES
+                and e.details["category"] not in ("connection", "timeout")
+            ) or attempt >= retries:
                 raise
-            if attempt < MAX_RETRIES:
-                delay = RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning(
-                    "LLM call attempt %d/%d failed (%s), retrying in %.1fs...",
-                    attempt + 1, MAX_RETRIES + 1, e, delay,
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt >= retries:
+                raise AIError(
+                    "connection", "Não foi possível conectar ao provedor de IA."
+                ) from None
+        delay = RETRY_BASE_DELAY * (2**attempt)
+        if time.monotonic() + delay >= deadline:
+            raise AIError("timeout", "Tempo total de resposta da IA esgotado.")
+        time.sleep(delay)
+    raise AIError("provider", "O provedor não respondeu.")
+
+
+def _post(url, *, timeout, **kwargs):
+    # A wall-clock bound also covers slow/trickling bodies. No redirects with secrets.
+    result = queue.Queue(maxsize=1)
+
+    def run():
+        try:
+            result.put(
+                requests.post(
+                    url, timeout=(min(10, timeout), timeout), allow_redirects=False, **kwargs
                 )
-                time.sleep(delay)
-        except (requests.ConnectionError, requests.Timeout) as e:
-            last_error = e
-            if attempt < MAX_RETRIES:
-                delay = RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning(
-                    "LLM call attempt %d/%d failed (%s), retrying in %.1fs...",
-                    attempt + 1, MAX_RETRIES + 1, type(e).__name__, delay,
-                )
-                time.sleep(delay)
+            )
+        except Exception as e:
+            result.put(e)
 
-    raise RuntimeError(f"LLM call failed after {MAX_RETRIES + 1} attempts ({type(last_error).__name__})")
+    threading.Thread(target=run, daemon=True).start()
+    try:
+        response = result.get(timeout=timeout)
+    except queue.Empty:
+        raise AIError(
+            "timeout", "Tempo total de resposta da IA esgotado. Tente novamente."
+        ) from None
+    if isinstance(response, requests.Timeout):
+        raise AIError("timeout", "O provedor excedeu o tempo de resposta.") from None
+    if isinstance(response, Exception):
+        raise AIError(
+            "connection", "Falha de conexão com o provedor. Confira rede, TLS e destino."
+        ) from None
+    return response
 
 
-def _call_anthropic(api_key: str, model: str, prompt: str, timeout: int) -> str:
-    """Call Anthropic Messages API."""
-    resp = requests.post(
+def _json(resp):
+    try:
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise ValueError()
+        return data
+    except (ValueError, TypeError):
+        raise AIError(
+            "invalid_response", "O endpoint não retornou JSON válido no protocolo selecionado."
+        ) from None
+
+
+def _text(value):
+    if not isinstance(value, str) or not value.strip():
+        raise AIError(
+            "empty_response",
+            "O modelo não produziu texto. Confira o protocolo e o orçamento de saída.",
+        )
+    return value.strip()
+
+
+def _call_anthropic(api_key, model, prompt, timeout):
+    resp = _post(
         API_ENDPOINTS["anthropic"],
         headers={
             "x-api-key": api_key,
@@ -301,40 +355,96 @@ def _call_anthropic(api_key: str, model: str, prompt: str, timeout: int) -> str:
     )
     if resp.status_code != 200:
         _raise_api_error("Anthropic", resp)
-    data = resp.json()
-    return str(data["content"][0]["text"]).strip()
+    data = _json(resp)
+    return _text(
+        "".join(
+            x.get("text", "") for x in data.get("content", []) if x.get("type", "text") == "text"
+        )
+    )
 
 
 def _call_openai_compatible(
-    provider: str, api_key: str, model: str, prompt: str, timeout: int
-) -> str:
-    """Call OpenAI-compatible API (OpenAI, DeepSeek)."""
-    resp = requests.post(
-        API_ENDPOINTS[provider],
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 8192,
-        },
-        timeout=timeout,
-    )
+    provider,
+    api_key,
+    model,
+    prompt,
+    timeout,
+    *,
+    endpoint="",
+    protocol="auto",
+    max_output_tokens=8192,
+    test_request=False,
+    response_format=None,
+):
+    url, protocol = destination(provider, endpoint, protocol)
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    body = {"model": model}
+    if protocol == "responses":
+        body.update(
+            input=[{"role": "user", "content": prompt}],
+            max_output_tokens=max_output_tokens,
+            store=False,
+        )
+        if test_request and (model == "gpt-6.1-sol" or model.startswith("gpt-6.1-sol-")):
+            body["reasoning"] = {"effort": "low"}
+        if response_format:
+            body["text"] = {"format": response_format}
+    else:
+        body["messages"] = [{"role": "user", "content": prompt}]
+        # Compatible vendors keep their documented Chat Completions parameter.
+        official = provider == "openai" and url == "https://api.openai.com/v1/chat/completions"
+        body["max_completion_tokens" if official else "max_tokens"] = max_output_tokens
+        if official:
+            body["store"] = False
+        if response_format:
+            if response_format.get("type") == "json_schema" and "schema" in response_format:
+                body["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {k: v for k, v in response_format.items() if k != "type"},
+                }
+            else:
+                body["response_format"] = response_format
+    resp = _post(url, headers=headers, json=body, timeout=timeout)
     if resp.status_code != 200:
         _raise_api_error(provider.title(), resp)
-    data = resp.json()
-    return str(data["choices"][0]["message"]["content"]).strip()
+    data = _json(resp)
+    if protocol == "responses":
+        if data.get("status") == "incomplete":
+            raise AIError(
+                "output_limit",
+                "Resposta incompleta: orçamento de saída esgotado ou resposta interrompida.",
+            )
+        if data.get("status") in ("failed", "cancelled"):
+            raise AIError("provider", "O provedor encerrou a geração sem uma resposta.")
+        parts = [
+            p
+            for item in data.get("output", [])
+            if item.get("type") == "message"
+            for p in item.get("content", [])
+        ]
+        if any(p.get("type") == "refusal" for p in parts):
+            raise AIError("refusal", "O modelo recusou este pedido.")
+        return _text("".join(p.get("text", "") for p in parts if p.get("type") == "output_text"))
+    try:
+        choice = data["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise AIError("output_limit", "Resposta incompleta: limite de saída atingido.")
+        if choice.get("message", {}).get("refusal"):
+            raise AIError("refusal", "O modelo recusou este pedido.")
+        return _text(choice["message"]["content"])
+    except (KeyError, IndexError, TypeError):
+        raise AIError(
+            "invalid_response",
+            "Resposta incompatível com Chat Completions. Confira endpoint e protocolo.",
+        ) from None
 
 
-def _call_google(api_key: str, model: str, prompt: str, timeout: int) -> str:
-    """Call Google Gemini API."""
-    url = API_ENDPOINTS["google"].format(model=model)
-    resp = requests.post(
-        url,
-        params={"key": api_key},
-        headers={"Content-Type": "application/json"},
+def _call_google(api_key, model, prompt, timeout):
+    resp = _post(
+        API_ENDPOINTS["google"].format(model=model),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
         json={
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"maxOutputTokens": 4096},
@@ -343,58 +453,146 @@ def _call_google(api_key: str, model: str, prompt: str, timeout: int) -> str:
     )
     if resp.status_code != 200:
         _raise_api_error("Google", resp)
-    data = resp.json()
-    return str(data["candidates"][0]["content"]["parts"][0]["text"]).strip()
-
-
-def _raise_api_error(provider: str, resp: requests.Response) -> None:
-    """Extract error message from API response and raise RuntimeError."""
-    # Remote error bodies may echo prompts, credentials or personal data.
-    raise RuntimeError(f"{provider} API error ({resp.status_code})")
-
-
-def invoke_llm(prompt: str, llm_config, timeout_seconds: int = 120) -> str:
-    """Generate text using the configured LLM provider.
-
-    Args:
-        prompt: Full prompt text.
-        llm_config: LLMConfig with provider, api_key, model fields.
-        timeout_seconds: Maximum wait time (default 120s).
-
-    Returns:
-        Generated text content.
-
-    Raises:
-        RuntimeError: If no API key is configured or the API call fails.
-    """
-    api_key = (getattr(llm_config, "api_key", "") or os.environ.get("AUTOAPPLY_LLM_API_KEY", "")) if llm_config else ""
-    endpoint = getattr(llm_config, "endpoint", "") if llm_config else ""
-    if not llm_config or (not api_key and not endpoint):
-        raise RuntimeError(
-            "No AI provider configured. Add an API key in Settings → AI Provider."
+    try:
+        return _text(
+            "".join(p.get("text", "") for p in _json(resp)["candidates"][0]["content"]["parts"])
         )
+    except (KeyError, IndexError, TypeError):
+        raise AIError("invalid_response", "Resposta incompatível com Google Gemini.") from None
 
-    provider = llm_config.provider
-    model = llm_config.model or DEFAULT_MODELS.get(provider, "")
 
-    if endpoint:
-        # Explicitly configured OpenAI-compatible endpoint, including local models.
-        # Never expose raw exception bodies/URLs containing credentials.
-        from urllib.parse import urlsplit
-        parsed = urlsplit(endpoint)
-        if parsed.scheme not in ("https", "http") or parsed.username or parsed.password or parsed.query:
-            raise RuntimeError("Endpoint inválido")
-        if parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
-            raise RuntimeError("HTTP permitido somente para modelos locais")
-        if not model:
-            raise RuntimeError("Informe o modelo para o endpoint personalizado")
-        resp = requests.post(endpoint, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                             json={"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": 2048}, timeout=timeout_seconds)
-        if not resp.ok:
-            raise RuntimeError(f"Endpoint de IA retornou HTTP {resp.status_code}")
-        return str(resp.json()["choices"][0]["message"]["content"]).strip()
+def _raise_api_error(provider, resp):
+    try:
+        error = resp.json().get("error", {})
+        if not isinstance(error, dict):
+            error = {}
+    except (ValueError, TypeError, AttributeError):
+        error = {}
+    # Never relay an arbitrary remote body: providers can echo keys and personal data.
+    known_codes = {
+        "invalid_api_key",
+        "insufficient_quota",
+        "rate_limit_exceeded",
+        "model_not_found",
+        "unsupported_parameter",
+        "unsupported_value",
+        "invalid_request_error",
+        "permission_denied",
+        "model_access_denied",
+        "authentication_error",
+        "context_length_exceeded",
+        "billing_hard_limit_reached",
+    }
+    code = error.get("code") if error.get("code") in known_codes else None
+    param = (
+        error.get("param")
+        if error.get("param")
+        in {
+            "max_tokens",
+            "max_completion_tokens",
+            "max_output_tokens",
+            "model",
+            "reasoning.effort",
+            "temperature",
+            "response_format",
+            "text.format",
+        }
+        else None
+    )
+    status = resp.status_code
+    category, message = "provider", "Falha no provedor de IA. Tente novamente mais tarde."
+    if status == 401:
+        category, message = (
+            "authentication",
+            "Credencial recusada pelo provedor. Confira a chave e o projeto.",
+        )
+    elif status == 403:
+        category, message = (
+            "permission",
+            "Acesso negado: confira permissões do projeto e acesso ao modelo.",
+        )
+    elif code == "model_not_found" or status == 404:
+        category, message = (
+            "model_unavailable",
+            "Modelo ou endpoint indisponível neste contexto. Confira o ID, o protocolo e o acesso da conta.",
+        )
+    elif code in {"insufficient_quota", "billing_hard_limit_reached"}:
+        category, message = (
+            "quota",
+            "Cota ou saldo do projeto insuficiente. Confira o faturamento no provedor.",
+        )
+    elif status == 429:
+        category, message = (
+            "rate_limit",
+            "Limite de requisições do provedor atingido. Aguarde antes de testar novamente.",
+        )
+    elif status in (400, 422):
+        category, message = "request", "O provedor recusou os parâmetros da requisição."
+    elif 300 <= status < 400:
+        category, message = (
+            "endpoint",
+            "O endpoint redirecionou a requisição. Informe o destino final; a chave não foi encaminhada.",
+        )
+    if code in ("permission_denied", "model_access_denied"):
+        category, message = "permission", "O projeto não tem permissão para esta chamada ou modelo."
+    if code:
+        message += " Código: " + code + "."
+    if param:
+        message += " Parâmetro: " + param + "."
+    message = f"{provider} API ({status}): " + message
+    request_id = resp.headers.get("x-request-id", "")
+    request_id = (
+        request_id
+        if isinstance(request_id, str) and re.fullmatch(r"req_[a-zA-Z0-9_-]{1,100}", request_id)
+        else None
+    )
+    raise AIError(category, message, status=status, code=code, param=param, request_id=request_id)
 
-    return _call_llm(provider, api_key, model, prompt, timeout_seconds)
+
+def invoke_llm(
+    prompt,
+    llm_config,
+    timeout_seconds=120,
+    *,
+    max_output_tokens=8192,
+    test_request=False,
+    response_format=None,
+):
+    if not llm_config or not llm_config.provider:
+        raise AIError("configuration", "No AI provider configured. Configure a IA para continuar.")
+    endpoint = getattr(llm_config, "endpoint", "")
+    protocol = getattr(llm_config, "protocol", "auto")
+    url, _ = destination(llm_config.provider, endpoint, protocol)
+    env_key, _ = environment_credential(llm_config)
+    api_key = llm_config.api_key or env_key
+    local = urlsplit(url).hostname in ("localhost", "127.0.0.1", "::1")
+    if not api_key and not local:
+        raise AIError(
+            "credential_missing",
+            "No AI provider credential configured. Informe uma chave para este provedor e destino.",
+        )
+    model = llm_config.model or DEFAULT_MODELS.get(llm_config.provider, "")
+    if not model:
+        raise AIError("configuration", "Informe o ID do modelo.")
+    # All production operations use one request, with a total deadline and no paid retries.
+    return _call_llm(
+        llm_config.provider,
+        api_key,
+        model,
+        prompt,
+        timeout_seconds,
+        endpoint=endpoint,
+        protocol=protocol,
+        max_output_tokens=max_output_tokens,
+        test_request=test_request,
+        response_format=response_format,
+        retries=0,
+    )
+
+
+# Names retained for consumers of the guided configuration API.
+AIProviderError = AIError
+diagnose_provider = test_configuration
 
 
 def read_all_experience_files(experience_dir: Path) -> str:
@@ -475,16 +673,19 @@ def generate_documents(
     llm_model = getattr(llm_config, "model", None) if llm_config else None
 
     # Generate resume via LLM
-    resume_md_text = invoke_llm(RESUME_PROMPT.format(
-        experience_files_content=experience_content,
-        job_description=job.raw.description,
-        full_name=profile.full_name,
-        email=profile.email,
-        phone=profile.phone_full,
-        location=profile.location,
-        linkedin_url=profile.linkedin_url or "N/A",
-        portfolio_url=profile.portfolio_url or "N/A",
-    ), llm_config)
+    resume_md_text = invoke_llm(
+        RESUME_PROMPT.format(
+            experience_files_content=experience_content,
+            job_description=job.raw.description,
+            full_name=profile.full_name,
+            email=profile.email,
+            phone=profile.phone_full,
+            location=profile.location,
+            linkedin_url=profile.linkedin_url or "N/A",
+            portfolio_url=profile.portfolio_url or "N/A",
+        ),
+        llm_config,
+    )
 
     # Save resume Markdown + PDF
     resume_md_path = output_dir_resumes / f"{base_name}.md"
@@ -495,12 +696,15 @@ def generate_documents(
     # Generate and save cover letter (unless disabled)
     cl_path = None
     if not skip_cover_letter:
-        cover_letter_text = invoke_llm(COVER_LETTER_PROMPT.format(
-            experience_files_content=experience_content,
-            job_description=job.raw.description,
-            full_name=profile.full_name,
-            bio=profile.bio,
-        ), llm_config)
+        cover_letter_text = invoke_llm(
+            COVER_LETTER_PROMPT.format(
+                experience_files_content=experience_content,
+                job_description=job.raw.description,
+                full_name=profile.full_name,
+                bio=profile.bio,
+            ),
+            llm_config,
+        )
         cl_path = output_dir_cover_letters / f"{base_name}.txt"
         cl_path.write_text(cover_letter_text, encoding="utf-8")
 
@@ -595,7 +799,9 @@ def generate_resume_from_kb(
         phone=context.get("phone", ""),
         location=context.get("location", ""),
         linkedin_line=linkedin_line,
-        summary_text=summary if summary else "Write a 2-3 sentence summary tailored to the job, based ONLY on the provided data.",
+        summary_text=summary
+        if summary
+        else "Write a 2-3 sentence summary tailored to the job, based ONLY on the provided data.",
         job_description=jd_text,
         kb_data=kb_data,
     )

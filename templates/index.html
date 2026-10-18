@@ -340,14 +340,10 @@
 <nav id="navbar" class="hidden" aria-label="Main navigation">
   <div class="logo" aria-hidden="true">Auto<span>Apply</span></div>
   <ul class="nav-tabs" role="tablist">
-    <li role="presentation"><a role="tab" data-screen="assistant" aria-selected="false" tabindex="-1">Candidaturas assistidas</a></li>
-    <li role="presentation"><a role="tab" class="active" data-screen="dashboard" aria-selected="true" tabindex="0" data-i18n="nav.dashboard">Dashboard</a></li>
-    <li role="presentation"><a role="tab" data-screen="applications" aria-selected="false" tabindex="-1" data-i18n="nav.applications">Applications</a></li>
-    <li role="presentation"><a role="tab" data-screen="profile" aria-selected="false" tabindex="-1" data-i18n="nav.profile">Profile</a></li>
-    <li role="presentation"><a role="tab" data-screen="analytics" aria-selected="false" tabindex="-1" data-i18n="nav.analytics">Analytics</a></li>
-    <li role="presentation"><a role="tab" data-screen="resumes" aria-selected="false" tabindex="-1" data-i18n="nav.resumes">Resume Library</a></li>
-    <li role="presentation"><a role="tab" data-screen="knowledge-base" aria-selected="false" tabindex="-1" data-i18n="nav.knowledge_base">Knowledge Base</a></li>
-    <li role="presentation"><a role="tab" data-screen="settings" aria-selected="false" tabindex="-1" data-i18n="nav.settings">Settings</a></li>
+    <li role="presentation"><a role="tab" data-screen="my-profile" aria-selected="true" tabindex="0">Meu perfil</a></li>
+    <li role="presentation"><a role="tab" data-screen="preferences" aria-selected="false" tabindex="-1">Preferências de vagas</a></li>
+    <li role="presentation"><a role="tab" data-screen="assistant" aria-selected="false" tabindex="-1">Vagas e candidaturas</a></li>
+    <li role="presentation"><a role="tab" data-screen="configuration" aria-selected="false" tabindex="-1">Configurações</a></li>
   </ul>
   <div class="nav-right">
     <span class="flex items-center gap-sm" id="nav-ai-indicator" role="status" aria-live="polite">
@@ -1019,6 +1015,7 @@
               <option value="openai">OpenAI (GPT)</option>
               <option value="google">Google (Gemini)</option>
               <option value="deepseek">DeepSeek</option>
+              <option value="compatible">Servidor compatível com OpenAI</option>
             </select>
           </div>
           <div class="form-group">
@@ -1033,7 +1030,16 @@
             <button type="button" class="btn btn-ghost btn-sm" onclick="validateLLMKey()" id="btn-validate-key" data-i18n="button.validate">Validate</button>
           </div>
           <span id="llm-key-status" style="font-size:.8rem;margin-top:4px;display:block;"></span>
+          <p class="text-dim">Deixe vazio para manter a chave deste destino. Testar não salva alterações.</p>
+          <button type="button" class="btn btn-ghost btn-sm" id="set-remove-ai-key">Remover chave armazenada</button>
         </div>
+        <details id="set-llm-advanced"><summary>Opções avançadas de conexão</summary>
+          <label for="set-llm-endpoint">URL-base ou endpoint completo (opcional)</label>
+          <input type="url" class="form-control" id="set-llm-endpoint" placeholder="https://servidor.example/v1">
+          <label for="set-llm-protocol">Protocolo</label>
+          <select class="form-control" id="set-llm-protocol"><option value="auto">Automático (preserva endpoints antigos)</option><option value="responses">Responses</option><option value="chat_completions">Chat Completions</option></select>
+          <p class="text-dim">OpenAI oficial usa Responses automaticamente. URL-base recebe o sufixo do protocolo uma vez; endpoint completo é preservado.</p>
+        </details>
 
         <hr style="border:none; border-top:1px solid var(--border); margin:8px 0;">
         <h3 data-i18n="settings.section_job_preferences">Job Preferences</h3>

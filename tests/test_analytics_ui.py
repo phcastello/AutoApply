@@ -154,7 +154,7 @@ class TestNFR01703Accessibility:
 
     def test_analytics_nav_tab(self, html):
         """Analytics nav link has role=tab and aria-selected."""
-        assert 'data-screen="analytics"' in html
+        assert 'data-legacy="analytics"' in html
         assert 'role="tab"' in html
 
     def test_chart_titles_present(self, html):

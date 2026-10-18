@@ -291,7 +291,7 @@ def test_api_profile_import_credentials_and_download(configuration, tmp_path, mo
     assert client.get("/api/assistant/resumes/999/pdf").status_code == 404
     assert client.patch("/api/assistant/jobs/999", json={"status": "applied"}).status_code == 404
     assert client.get("/").status_code == 200
-    assert "Candidaturas assistidas" in client.get("/").get_data(as_text=True)
+    assert "Meu perfil" in client.get("/").get_data(as_text=True)
 
 
 def test_keys_never_fallback_to_plaintext(configuration, tmp_path):

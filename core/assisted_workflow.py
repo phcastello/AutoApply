@@ -11,9 +11,11 @@ from pathlib import Path
 
 from PyPDF2 import PdfReader
 
+from config.ai_destination import DEFAULT_MODELS, destination
 from core.assisted_matching import evaluate, select_entries, use_ai_selection
 from core.job_discovery import canonical_url, discover, now, verify_url
 from core.resume_renderer import render_resume_to_pdf
+from core.work_preferences import outside_preferences
 
 STATES = {
     "saved",
@@ -142,14 +144,7 @@ def search_jobs(db, config):
                 continue
             analysis = evaluate(config.profile, criteria, job, config.company_blacklist)
             # Exclusions are explicit. Unknown metadata is never a rejection.
-            if any(
-                x in analysis["blockers"]
-                for x in (
-                    "Palavra-chave excluída encontrada",
-                    "Empresa bloqueada",
-                    "Modalidade incompatível com remoto",
-                )
-            ):
+            if outside_preferences(analysis) or analysis["eligibility"]["state"] == "incompatible":
                 continue
             filtered.append((job, analysis))
         filtered.sort(key=lambda x: x[1]["score"], reverse=True)
@@ -244,11 +239,16 @@ def build_markdown(profile, entries, language):
                 if details:
                     lines.append(details)
             lines.append("- " + _literal(entry["text"]))
+            for activity in entry.get("activities", []):
+                lines.append("- " + _literal(activity["title"]) + ": " + _literal(activity["text"]))
             if entry.get("technologies"):
                 lines.append(
                     ("Tecnologias: " if pt else "Technologies: ") + ", ".join(entry["technologies"])
                 )
-            if entry.get("proficiency"):
+            if (
+                entry.get("proficiency")
+                and entry["proficiency"].casefold() not in entry["text"].casefold()
+            ):
                 lines.append(_literal(entry["proficiency"]))
             if entry.get("url"):
                 lines.append(_literal(entry["url"]))
@@ -280,6 +280,21 @@ def validate_pdf(path, profile, expected_claims=()):
 
 
 def generate_resume(db, config, job, data_dir, use_ai=False, force=False):
+    from core.profile_import import note_like
+
+    for entry in config.profile.career_entries:
+        if not entry.confirmed:
+            continue
+        if note_like(entry.text) or ("**Nome" in entry.text and "**Telefone" in entry.text):
+            raise ValueError(
+                "Há texto bruto ou restrições misturadas às informações confirmadas. Revise a importação antes de gerar o currículo."
+            )
+    fresh_analysis = evaluate(config.profile, config.search_criteria, job, config.company_blacklist)
+    if fresh_analysis["eligibility"]["state"] == "incompatible":
+        raise ValueError(
+            "Esta vaga é incompatível com suas regras de local de trabalho. Confira as preferências antes de preparar uma candidatura."
+        )
+    job["match"] = fresh_analysis
     if not config.profile.full_name.strip() or not config.profile.email.strip():
         raise ValueError("Preencha nome e e-mail no perfil")
     entries = select_entries(config.profile, job)
@@ -300,10 +315,15 @@ def generate_resume(db, config, job, data_dir, use_ai=False, force=False):
         description=job["description"],
         language=language,
         ai=use_ai,
-        model=config.llm.model if use_ai else "",
+        model=(config.llm.model or DEFAULT_MODELS.get(config.llm.provider, "")) if use_ai else "",
         provider=config.llm.provider if use_ai else "",
         endpoint=config.llm.endpoint if use_ai else "",
-        renderer=3,
+        protocol=destination(config.llm.provider, config.llm.endpoint, config.llm.protocol)[1]
+        if use_ai
+        else "",
+        selection_prompt=3,
+        job_title=job["title"],
+        renderer=4,
     )
     cache_key = hashlib.sha256(encode(cache_input).encode()).hexdigest()
     with _resume_lock:
@@ -337,7 +357,9 @@ def generate_resume(db, config, job, data_dir, use_ai=False, force=False):
         )
         md_path.write_text(md, encoding="utf-8")
         render_resume_to_pdf(md, pdf_path)
-        validation = validate_pdf(pdf_path, config.profile, [_literal(e["text"]) for e in entries])
+        claims = [_literal(e["text"]) for e in entries]
+        claims.extend(_literal(a["text"]) for e in entries for a in e.get("activities", []))
+        validation = validate_pdf(pdf_path, config.profile, claims)
         from docx import Document
         from docx.shared import Inches, Pt, RGBColor
 

@@ -1,6 +1,6 @@
 """Dashboard APIs for manual discovery and evidence-bound document preparation."""
 
-import os
+import json
 import tempfile
 import threading
 import uuid
@@ -11,6 +11,8 @@ from pydantic import ValidationError
 
 import app_state
 from config.settings import AppConfig, get_data_dir, load_config, save_config
+from core.ai_configuration import public_llm, resolve_draft
+from core.ai_engine import AIProviderError
 from core.assisted_matching import evaluate
 from core.assisted_workflow import (
     STATES,
@@ -20,8 +22,11 @@ from core.assisted_workflow import (
     save_payload,
     search_jobs,
 )
-from core.document_parser import extract_text
+from core.document_parser import extract_import_text
 from core.job_discovery import verify_url
+from core.profile_import import basic_text_draft, draft_profile, intelligent_draft
+from core.profile_schema import deduplicate
+from core.work_preferences import outside_preferences
 
 assistant_bp = Blueprint("assistant", __name__)
 _tasks = {}
@@ -63,10 +68,12 @@ def _task(fn):
         except Exception as e:
             message = (
                 str(e)
-                if isinstance(e, ValueError)
+                if isinstance(e, (ValueError, AIProviderError))
                 else f"Operação falhou ({type(e).__name__}). Confira configuração, conectividade e provedor."
             )
             _tasks[task_id] = dict(state="failed", error=message)
+            if isinstance(e, AIProviderError):
+                _tasks[task_id]["diagnostic"] = e.as_dict()
             app_state.db.save_feed_event("error", message=message)
 
     threading.Thread(target=run, daemon=True).start()
@@ -77,8 +84,7 @@ def _task(fn):
 def get_configuration():
     config = current_config()
     data = config.model_dump()
-    data["llm"]["has_api_key"] = bool(config.llm.api_key or os.environ.get("AUTOAPPLY_LLM_API_KEY"))
-    data["llm"]["api_key"] = ""
+    data["llm"] = public_llm(config.llm)
     return jsonify(data)
 
 
@@ -96,26 +102,55 @@ def put_configuration():
             merged[section].update(data[section])
     if "company_blacklist" in data:
         merged["company_blacklist"] = data["company_blacklist"]
-    if not data.get("llm", {}).get("api_key"):
-        same_destination = (merged["llm"]["provider"], merged["llm"]["endpoint"]) == (
-            existing.llm.provider,
-            existing.llm.endpoint,
-        )
-        merged["llm"]["api_key"] = existing.llm.api_key if same_destination else ""
     try:
         config = AppConfig(**merged)
+        imported_seen = set()
+        unique_entries = []
+        for entry in config.profile.career_entries:
+            if entry.import_key and entry.import_key in imported_seen:
+                continue
+            if entry.import_key:
+                imported_seen.add(entry.import_key)
+            unique_entries.append(entry)
+        config.profile.career_entries = unique_entries
+        config.llm = resolve_draft(data.get("llm", {}), existing.llm)
         ids = [e.id for e in config.profile.career_entries]
         if len(set(ids)) != len(ids) or any(not i.strip() for i in ids):
             raise ValueError("Informações do perfil precisam de identificadores únicos")
-        if config.llm.provider not in ("", "openai", "anthropic", "google", "deepseek"):
+        if config.llm.provider not in (
+            "",
+            "openai",
+            "anthropic",
+            "google",
+            "deepseek",
+            "compatible",
+        ):
             raise ValueError("Provedor não suportado")
         if not 0 <= config.bot.min_match_score <= 100:
             raise ValueError("Pontuação mínima deve estar entre 0 e 100")
+        previous_imports = {e.import_key for e in existing.profile.career_entries if e.import_key}
+        if any(
+            e.import_key and e.import_key not in previous_imports
+            for e in config.profile.career_entries
+        ):
+            backup_dir = get_data_dir() / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup = backup_dir / ("profile-before-import-" + uuid.uuid4().hex + ".json")
+            backup.write_text(
+                json.dumps(existing.profile.model_dump(), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            try:
+                backup.chmod(0o600)
+            except OSError:
+                pass
         save_config(config)
     except ValidationError:
         abort(400, description="Campos inválidos no perfil ou preferências")
     except ValueError as e:
         abort(400, description=str(e))
+    except Exception:
+        return jsonify(error="Não foi possível salvar no cofre do sistema."), 400
     # Refresh matching when profile/preferences change, preserving history.
     for job in list_jobs(app_state.db):
         job["match"] = evaluate(
@@ -127,7 +162,14 @@ def put_configuration():
 
 @assistant_bp.get("/api/assistant/jobs")
 def jobs():
-    return jsonify(jobs=list_jobs(app_state.db))
+    config = current_config()
+    result = list_jobs(app_state.db)
+    for job in result:
+        job["match"] = evaluate(
+            config.profile, config.search_criteria, job, config.company_blacklist
+        )
+        job["outside_preferences"] = outside_preferences(job["match"])
+    return jsonify(jobs=result)
 
 
 @assistant_bp.post("/api/assistant/search")
@@ -245,13 +287,45 @@ def import_document():
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / ("document" + ext)
             path.write_bytes(raw)
-            text = extract_text(path)
+            text = extract_import_text(path)
     except Exception:
         abort(422, description="Não foi possível extrair o texto do documento")
     if not text.strip():
         abort(422, description="Documento sem texto; PDFs digitalizados precisam de OCR externo")
     # Explicit human review. No generated resume or KB entry is automatically trusted.
-    return jsonify(text=text[:100000], source=Path(upload.filename).name, confirmed=False)
+    if len(text) > 100000:
+        return jsonify(
+            error="Documento excede 100 mil caracteres. Divida-o antes de importar; o conteúdo não foi truncado."
+        ), 422
+    mode = request.form.get("mode") or (
+        "ai" if request.form.get("use_ai") == "true" else "structured"
+    )
+    if mode not in ("basic", "structured", "ai"):
+        return jsonify(error="Modo de importação inválido."), 400
+    if (
+        mode == "ai"
+        and request.form.get("consent_ai") != "true"
+        and request.form.get("use_ai") != "true"
+    ):
+        return jsonify(error="Autorize o envio à IA ou escolha o modo local."), 400
+    try:
+        draft = (
+            intelligent_draft(text, Path(upload.filename).name, current_config().llm)
+            if mode == "ai"
+            else basic_text_draft(text, Path(upload.filename).name)
+            if mode == "basic"
+            else draft_profile(text, Path(upload.filename).name)
+        )
+    except AIProviderError as e:
+        return jsonify(error=e.as_dict()), 422
+    except ValidationError:
+        return jsonify(error="O documento não pôde ser representado no esquema de perfil. Revise ou divida o documento; nenhuma informação foi aplicada."), 422
+    except ValueError as e:
+        return jsonify(error=str(e)), 422
+    existing = [e.model_dump() for e in current_config().profile.career_entries]
+    draft["entries"], duplicates = deduplicate(draft["entries"], existing)
+    draft["duplicate_count"] = draft.get("duplicate_count", 0) + duplicates
+    return jsonify(draft)
 
 
 @assistant_bp.get("/api/assistant/kb-suggestions")
@@ -279,9 +353,7 @@ def kb_suggestions():
 
 @assistant_bp.post("/api/assistant/ai/test")
 def test_ai():
-    from core.ai_engine import invoke_llm
+    # The legacy and guided screens use exactly the same diagnosis, including drafts.
+    from routes.config import validate_ai_key
 
-    config = current_config()
-    return _task(
-        lambda: dict(valid=bool(invoke_llm("Reply with OK", config.llm, timeout_seconds=15)))
-    )
+    return validate_ai_key()

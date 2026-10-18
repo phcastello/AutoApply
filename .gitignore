@@ -46,6 +46,7 @@ profile/experiences/
 uploads/
 *.pem
 *.key
+/key.txt
 
 # Test / Coverage
 .coverage

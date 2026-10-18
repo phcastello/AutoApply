@@ -783,6 +783,12 @@ class TestShutdown:
         # Prevent actual shutdown by monkeypatching os.kill
         monkeypatch.setattr("app.os.kill", lambda pid, sig: None)
         monkeypatch.setattr("routes.lifecycle.os.kill", lambda pid, sig: None)
+        # Keep the worker inside the monkeypatch lifetime. A delayed background
+        # thread could otherwise call the real os.kill after this test ends.
+        from types import SimpleNamespace
+
+        monkeypatch.setattr("threading.Thread",
+            lambda target, daemon: SimpleNamespace(start=target))
         resp = client.post("/api/shutdown")
         assert resp.status_code == 200
         data = resp.get_json()

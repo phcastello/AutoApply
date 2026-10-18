@@ -13,8 +13,10 @@ import { escHtml } from './helpers.js';
 export async function apiFetch(url, opts = {}) {
   const res = await fetch(url, opts);
   if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${text}`);
+    const body = await res.json().catch(() => ({}));
+    const error = new Error(typeof body.error==='string'?body.error:body.error?.message||`Falha na operação (HTTP ${res.status}).`);
+    error.diagnostic = body.error;
+    throw error;
   }
   const ct = res.headers.get('content-type') || '';
   if (ct.includes('application/json')) {

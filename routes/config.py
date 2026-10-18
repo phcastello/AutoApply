@@ -11,8 +11,17 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request
 from pydantic import ValidationError
 
-from config.settings import AppConfig, get_data_dir, is_first_run, load_config, save_config
-from core.ai_engine import validate_api_key as _validate_api_key
+from config.settings import (
+    AppConfig,
+    LLMConfig,
+    get_data_dir,
+    is_first_run,
+    load_config,
+    remove_credential,
+    save_config,
+)
+from core.ai_configuration import public_llm, resolve_draft
+from core.ai_engine import diagnose_provider
 from core.i18n import t
 from routes.bot import check_ai_available
 
@@ -32,15 +41,14 @@ def get_config():
     if config is None:
         return jsonify({})
     data = config.model_dump()
-    data["llm"]["api_key"] = ""
-    data["llm"]["has_api_key"] = bool(config.llm.api_key)
+    data["llm"] = public_llm(config.llm)
     return jsonify(data)
 
 
 @config_bp.route("/api/config", methods=["PUT"])
 def update_config():
     data = request.get_json()
-    if data is None:
+    if not isinstance(data, dict):
         return jsonify({"error": t("errors.request_body_json")}), 400
     try:
         existing = load_config()
@@ -52,18 +60,20 @@ def update_config():
                 else:
                     merged[key] = value
             config = AppConfig(**merged)
-            if not data.get("llm", {}).get("api_key"):
-                config.llm.api_key = (
-                    existing.llm.api_key
-                    if (config.llm.provider, config.llm.endpoint)
-                    == (existing.llm.provider, existing.llm.endpoint)
-                    else ""
-                )
+            config.llm = resolve_draft(data.get("llm", {}), existing.llm)
         else:
             config = AppConfig(**data)
+            config.llm = resolve_draft(data.get("llm", {}))
     except ValidationError as e:
         return jsonify({"error": t("errors.invalid_config", count=e.error_count())}), 400
-    save_config(config)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    try:
+        save_config(config)
+    except Exception:
+        return jsonify(
+            error="Não foi possível salvar a configuração ou guardar a chave no cofre do sistema."
+        ), 400
     return jsonify({"success": True})
 
 
@@ -89,16 +99,30 @@ def setup_status():
 
 @config_bp.route("/api/ai/validate", methods=["POST"])
 def validate_ai_key():
-    data = request.get_json(force=True) or {}
-    provider = data.get("provider", "")
-    api_key = data.get("api_key", "")
-    model = data.get("model", "")
-    if not provider or not api_key:
-        return jsonify({"error": t("errors.provider_key_required")}), 400
-    if provider not in ("anthropic", "openai", "google", "deepseek"):
-        return jsonify({"error": t("errors.unsupported_provider", provider=provider)}), 400
-    valid = _validate_api_key(provider, api_key, model or None)
-    return jsonify({"valid": valid})
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Envie uma configuração JSON"), 400
+    try:
+        existing = load_config()
+        draft = resolve_draft(data, existing.llm if existing else None)
+    except ValidationError:
+        return jsonify(error="Configuração de IA inválida"), 400
+    except ValueError as e:
+        return jsonify(valid=False, error=dict(category="configuration", message=str(e))), 400
+    return jsonify(diagnose_provider(draft))
+
+
+@config_bp.route("/api/ai/credential", methods=["DELETE"])
+def delete_ai_credential():
+    config = load_config()
+    if config is None:
+        return jsonify(success=True, llm=public_llm(LLMConfig()))
+    try:
+        remove_credential(config.llm)
+        save_config(config)
+    except Exception:
+        return jsonify(error="Não foi possível remover a chave do cofre do sistema."), 400
+    return jsonify(success=True, llm=public_llm(config.llm))
 
 
 # ---------------------------------------------------------------------------

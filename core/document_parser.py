@@ -92,7 +92,40 @@ def _extract_from_docx(file_path: Path) -> str:
 def _extract_from_text(file_path: Path) -> str:
     """Read a plain text or markdown file."""
     try:
-        return file_path.read_text(encoding="utf-8")
+        return file_path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError:
         logger.warning("UTF-8 decode failed for %s, trying latin-1", file_path.name)
         return file_path.read_text(encoding="latin-1")
+
+
+def extract_import_text(file_path: Path) -> str:
+    """Preserve Word heading levels and contact tables for profile import only."""
+    if file_path.suffix.lower() != ".docx":
+        return extract_text(file_path)
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    doc = Document(str(file_path))
+    parts = []
+    for element in doc.element.body:
+        if element.tag.endswith("}p"):
+            paragraph = Paragraph(element, doc)
+            value = paragraph.text.strip()
+            if not value:
+                continue
+            style = paragraph.style.name if paragraph.style else ""
+            import re
+
+            level = re.search(r"(?:Heading|Título)\s*(\d)", style, re.I)
+            if level:
+                value = "#" * min(6, int(level[1]) + 1) + " " + value
+            parts.append(value)
+        elif element.tag.endswith("}tbl"):
+            for row in Table(element, doc).rows:
+                cells = list(dict.fromkeys(c.text.strip() for c in row.cells if c.text.strip()))
+                if len(cells) == 2:
+                    parts.append(cells[0].rstrip(":") + ": " + cells[1])
+                else:
+                    parts.extend(cells)
+    return "\n\n".join(parts)
